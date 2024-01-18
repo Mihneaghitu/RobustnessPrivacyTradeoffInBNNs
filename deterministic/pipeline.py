@@ -6,27 +6,28 @@ from deterministic.vanilla_net import VanillaCNN
 
 
 def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.device) -> VanillaCNN:
-    vanilla_net = VanillaCNN(input_channels=1)
+    vanilla_net = VanillaCNN()
     vanilla_net.to(device)
 
     # hyperparameters
     criterion = torch.nn.CrossEntropyLoss()
-    lr = 0.05
-    num_epochs = 5
-    batch_size = 20
+    lr = 0.002
+    num_epochs = 30
+    batch_size = 64
     print_freq = 500
 
     data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 
     # Initialize the parameters with a standard normal --
-    # TODO -- fix low accuracy when initializing with standard normal
-    # for param in vanilla_net.parameters():
-    #     init_vals = torch.normal(mean=0.0, std=1.0, size=tuple(param.shape)).to(device)
-    #     param.data = torch.nn.parameter.Parameter(init_vals)
+    for param in vanilla_net.named_parameters():
+        if 'weight' in param[0]:
+            init_vals = torch.normal(mean=0.0, std=0.05, size=tuple(param[1].shape)).to(device)
+            param[1].data = torch.nn.parameter.Parameter(init_vals)
 
     running_loss = 0.0
     for epoch in range(num_epochs):
         losses  = []
+        lr = max(lr * 0.95, 0.001)
         for i, data in enumerate(data_loader):
             batch_data_train, batch_target_train = data[0].to(device), data[1].to(device)
             # Forward pass
