@@ -12,7 +12,7 @@ def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.de
     # hyperparameters
     criterion = torch.nn.CrossEntropyLoss()
     lr = 0.002
-    num_epochs = 30
+    num_epochs = 50
     batch_size = 64
     print_freq = 500
 
@@ -21,7 +21,7 @@ def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.de
     # Initialize the parameters with a standard normal --
     for param in vanilla_net.named_parameters():
         if 'weight' in param[0]:
-            init_vals = torch.normal(mean=0.0, std=0.05, size=tuple(param[1].shape)).to(device)
+            init_vals = torch.normal(mean=0.0, std=0.1, size=tuple(param[1].shape)).to(device)
             param[1].data = torch.nn.parameter.Parameter(init_vals)
 
     running_loss = 0.0
