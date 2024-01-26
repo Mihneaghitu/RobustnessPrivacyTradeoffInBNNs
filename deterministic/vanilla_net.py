@@ -1,9 +1,9 @@
 import torch
 
 
-class VanillaCNN(torch.nn.Module):
+class VanillaNetLinear(torch.nn.Module):
     def __init__(self):
-        super(VanillaCNN, self).__init__()
+        super(VanillaNetLinear, self).__init__()
         self.linear = torch.nn.Sequential(
             torch.nn.Linear(784, 128),
             torch.nn.ReLU(),
@@ -22,3 +22,6 @@ class VanillaCNN(torch.nn.Module):
 
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param - learning_rate * grad
+
+import tensorflow as tf
+import tensorflow_datasets as tfds

@@ -2,11 +2,11 @@ import torch
 import torchvision
 from torch.utils.data import DataLoader
 
-from deterministic.vanilla_net import VanillaCNN
+from deterministic.vanilla_net import VanillaNetLinear
 
 
-def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.device) -> VanillaCNN:
-    vanilla_net = VanillaCNN()
+def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.device) -> VanillaNetLinear:
+    vanilla_net = VanillaNetLinear()
     vanilla_net.to(device)
 
     # hyperparameters
@@ -49,7 +49,7 @@ def train_mnist_vanilla(train_data: torchvision.datasets.mnist, device: torch.de
 
     return vanilla_net
 
-def test_mnist_vanilla(vanilla_net: VanillaCNN, test_data: torchvision.datasets.mnist, device: torch.device):
+def test_mnist_vanilla(vanilla_net: VanillaNetLinear, test_data: torchvision.datasets.mnist, device: torch.device):
     vanilla_net.eval()
     batch_size = 32
     data_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True, num_workers=2)
