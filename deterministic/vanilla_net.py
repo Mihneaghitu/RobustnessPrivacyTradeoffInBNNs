@@ -22,6 +22,3 @@ class VanillaNetLinear(torch.nn.Module):
 
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param - learning_rate * grad
-
-import tensorflow as tf
-import tensorflow_datasets as tfds

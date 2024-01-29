@@ -3,22 +3,20 @@ from typing import Callable, Union
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from globals import TORCH_DEVICE
+
 from .bnn import BNN
 
 
 class Hamiltonian:
     def __init__(self, prior: Callable[[torch.Tensor], torch.Tensor], likelihood: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-                 m_variances: torch.Tensor, dset: Union[torch.Tensor, Dataset], net: BNN = None) -> None:
+                 m_variances: torch.Tensor, dset: Dataset, net: BNN = None) -> None:
         self.prior = prior
         self.likelihood = likelihood
-        self.m_variances = m_variances
-        is_bnn = net is not None
-        if is_bnn:
-            self.dset = DataLoader(dset, batch_size=1000, shuffle=True)
-            self.net = net
-        else:
-            self.dset = dset
-        self.U = self._potential if not is_bnn else self._potential_bnn
+        self.m_variances = m_variances.to(TORCH_DEVICE)
+        self.dset = DataLoader(dset, batch_size=5000, shuffle=True)
+        self.net = net
+        self.U = self._potential_bnn
         self.K = self._kinetic
 
     def grad_u(self, q: torch.Tensor):
@@ -31,15 +29,14 @@ class Hamiltonian:
         return param - lr * grad
 
     def joint_canonical_distribution(self, q: torch.Tensor, p: torch.Tensor, sgn=-1):
-        return torch.exp(sgn * self.hamiltonian(q, p))
+        return torch.exp(sgn * self.hamiltonian(q, p)) # (1 / z) * exp(-H)
 
-    def _potential(self, q: torch.Tensor) -> torch.Tensor:
-        # ll = self.likelihood(q, self.dset)
-        return - torch.log(self.prior(q)) - torch.log(self.likelihood(q, self.dset)).sum()
+    def rebatch(self, batch_size: int):
+        self.dset = DataLoader(self.dset.dataset, batch_size=batch_size, shuffle=True)
 
     def _potential_bnn(self, q: torch.Tensor) -> torch.Tensor:
         batch = next(iter(self.dset)) # correct because data is shuffled anyways
-        xs, ys = batch[0], batch[1]
+        xs, ys = batch[0].to(TORCH_DEVICE), batch[1].to(TORCH_DEVICE)
 
         return - self.prior(q) - self.likelihood(xs, ys, self.net).sum()
 
