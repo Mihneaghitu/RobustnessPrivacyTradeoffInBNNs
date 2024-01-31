@@ -6,32 +6,25 @@ from torch.utils.data import DataLoader
 
 from globals import TORCH_DEVICE
 from probabilistic.bnn import BNN
-from probabilistic.hamiltonian import Hamiltonian
+from probabilistic.hamiltonian import Hamiltonian, HyperparamsHMC
 
 
-class HyperparamsHMC:
-    def __init__(self, num_epochs: int, num_burnin_epochs: int, lf_step: float, steps_per_epoch: int = -1,
-                 batch_size: int = 1, batches_per_epoch: int = -1, gradient_norm_bound: float = -1):
-        self.num_epochs = num_epochs
-        self.num_burnin_epochs = num_burnin_epochs
-        self.lf_step = lf_step
-        self.steps_per_epoch = steps_per_epoch
-        self.batch_size = batch_size
-        self.batches_per_epoch = batches_per_epoch
-        self.gradient_norm_bound = gradient_norm_bound
-
-
-def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, lf_step: float) -> (torch.Tensor, torch.Tensor):
+def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, lf_step: float, dp: tuple = (False, 0)) -> (torch.Tensor, torch.Tensor):
     # important to start recording the gradient
     q = current_q.clone().detach().requires_grad_(True)
     p = torch.normal(mean=0, std=1, size=(current_q.shape[0],)).requires_grad_(True)
     q, p = q.to(TORCH_DEVICE), p.to(TORCH_DEVICE)
-    p = hamiltonian.update_param(p, hamiltonian.grad_u(q), lf_step / 2)
+    is_dp, norm_bound = dp
+    grad_q = hamiltonian.grad_u(q)
+    if is_dp:
+        # clip the gradient norm (first term) and add noise (second term)
+        grad_q *= min(1, norm_bound / torch.norm(grad_q))
+        grad_q += torch.normal(mean=0, std=norm_bound, size=(grad_q.shape[0],))
+    p = hamiltonian.update_param(p, grad_q, lf_step / 2)
     q = q + lf_step * p
-
     return q, p
 
-def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp=False) -> List[torch.Tensor]:
+def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> List[torch.Tensor]:
     torch.autograd.set_detect_anomaly(True)
 
     net = hamiltonian.net
@@ -44,7 +37,7 @@ def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp=False) -> List
     for epoch in range(hyperparams.num_epochs):
         print(f'Epoch {epoch}...')
 
-        q, p = init_position_and_momentum(current_q, hamiltonian, hyperparams.lf_step)
+        q, p = init_position_and_momentum(current_q, hamiltonian, hyperparams.lf_step, (dp, hyperparams.gradient_norm_bound))
         current_p = p
 
         # TODO: might be worth generalizing this to an enumeration of the different types of inner loops
@@ -82,18 +75,20 @@ def integration_step(q: torch.Tensor, p: torch.Tensor, hamiltonian: Hamiltonian,
 def integration_step_dp(q: torch.Tensor, p: torch.Tensor, hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC) -> (torch.Tensor, torch.Tensor):
     # TODO: ask whether a subloop with a batch size like 100 is ok?
     # Also, in the current case is L (num_leapfrog_steps) equal to the batch size?
+    clip_grad = lambda grad: grad * min(1, hyperparams.gradient_norm_bound / torch.norm(grad))
+    noisify = lambda grad: grad + torch.normal(mean=0, std=hyperparams.gradient_norm_bound, size=(grad.shape[0],))
     for _ in range(hyperparams.steps_per_epoch):
         # at each leapfrog step, sample a mini-batch of size batch_size
         hamiltonian.rebatch(1)
-        grad_q = hamiltonian.grad_u(q)
-        # clip the gradient norm
-        clipped_grad = grad_q / max(1, torch.norm(grad_q) / hyperparams.gradient_norm_bound)
-        # add noise for DP
-        noisy_clipped_grad = clipped_grad + torch.normal(mean=0, std=hyperparams.gradient_norm_bound, size=(grad_q.shape[0],))
-        # update the parameters
+        # clip gradient norm and add noise for DP
+        noisy_clipped_grad = noisify(clip_grad(hamiltonian.grad_u(q)))
         p = hamiltonian.update_param(p, noisy_clipped_grad, hyperparams.lf_step)
         q = hamiltonian.update_param(q, p, - hyperparams.lf_step)
 
+    # make one last half leapfrog step
+    p = hamiltonian.update_param(p, noisify(clip_grad(hamiltonian.grad_u(q))), hyperparams.lf_step / 2)
+    # make the proposal symmetric
+    p = -p
     return q, p
 
 

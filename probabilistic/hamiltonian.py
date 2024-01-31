@@ -20,7 +20,11 @@ class Hamiltonian:
         self.K = self._kinetic
 
     def grad_u(self, q: torch.Tensor):
-        return torch.autograd.grad(outputs=self.U(q), inputs=q, retain_graph=True)[0]
+        # return torch.autograd.grad(outputs=self.U(q), inputs=q, retain_graph=True)[0]
+        q.grad.data.zero_()
+        self.U(q).backward(retain_graph=True)
+        return q.grad
+
 
     def hamiltonian(self, q, p):
         return self.U(q) + self.K(p)
@@ -42,3 +46,14 @@ class Hamiltonian:
 
     def _kinetic(self, p: torch.Tensor) -> torch.Tensor:
         return (p ** 2 / (0.5 * self.m_variances)).sum()
+
+class HyperparamsHMC:
+    def __init__(self, num_epochs: int, num_burnin_epochs: int, lf_step: float, steps_per_epoch: int = -1,
+                 batch_size: int = 1, batches_per_epoch: int = -1, gradient_norm_bound: float = -1):
+        self.num_epochs = num_epochs
+        self.num_burnin_epochs = num_burnin_epochs
+        self.lf_step = lf_step
+        self.steps_per_epoch = steps_per_epoch
+        self.batch_size = batch_size
+        self.batches_per_epoch = batches_per_epoch
+        self.gradient_norm_bound = gradient_norm_bound
