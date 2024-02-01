@@ -49,7 +49,7 @@ class Hamiltonian:
 
 class HyperparamsHMC:
     def __init__(self, num_epochs: int, num_burnin_epochs: int, lf_step: float, steps_per_epoch: int = -1,
-                 batch_size: int = 1, batches_per_epoch: int = -1, gradient_norm_bound: float = -1):
+                 batch_size: int = 1, batches_per_epoch: int = -1, gradient_norm_bound: float = -1, dp_sigma: float = 1.0):
         self.num_epochs = num_epochs
         self.num_burnin_epochs = num_burnin_epochs
         self.lf_step = lf_step
@@ -57,3 +57,4 @@ class HyperparamsHMC:
         self.batch_size = batch_size
         self.batches_per_epoch = batches_per_epoch
         self.gradient_norm_bound = gradient_norm_bound
+        self.sigma = dp_sigma

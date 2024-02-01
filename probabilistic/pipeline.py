@@ -9,19 +9,18 @@ from probabilistic.bnn import BNN
 from probabilistic.hamiltonian import Hamiltonian, HyperparamsHMC
 
 
-def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, lf_step: float, dp: tuple = (False, 0)) -> (torch.Tensor, torch.Tensor):
+def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> (torch.Tensor, torch.Tensor):
     # important to start recording the gradient
     q = current_q.clone().detach().requires_grad_(True)
     p = torch.normal(mean=0, std=1, size=(current_q.shape[0],)).requires_grad_(True)
     q, p = q.to(TORCH_DEVICE), p.to(TORCH_DEVICE)
-    is_dp, norm_bound = dp
     grad_q = hamiltonian.grad_u(q)
-    if is_dp:
+    if dp:
         # clip the gradient norm (first term) and add noise (second term)
-        grad_q *= min(1, norm_bound / torch.norm(grad_q))
-        grad_q += torch.normal(mean=0, std=norm_bound, size=(grad_q.shape[0],))
-    p = hamiltonian.update_param(p, grad_q, lf_step / 2)
-    q = q + lf_step * p
+        grad_q /= max(1, torch.norm(grad_q) / hyperparams.gradient_norm_bound)
+        grad_q += torch.normal(mean=0, std=hyperparams.sigma * hyperparams.gradient_norm_bound, size=(grad_q.shape[0],))
+    p = hamiltonian.update_param(p, grad_q, hyperparams.lf_step / 2)
+    q = q + hyperparams.lf_step * p
     return q, p
 
 def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> List[torch.Tensor]:
@@ -75,8 +74,8 @@ def integration_step(q: torch.Tensor, p: torch.Tensor, hamiltonian: Hamiltonian,
 def integration_step_dp(q: torch.Tensor, p: torch.Tensor, hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC) -> (torch.Tensor, torch.Tensor):
     # TODO: ask whether a subloop with a batch size like 100 is ok?
     # Also, in the current case is L (num_leapfrog_steps) equal to the batch size?
-    clip_grad = lambda grad: grad * min(1, hyperparams.gradient_norm_bound / torch.norm(grad))
-    noisify = lambda grad: grad + torch.normal(mean=0, std=hyperparams.gradient_norm_bound, size=(grad.shape[0],))
+    clip_grad = lambda grad: grad / max(1, torch.norm(grad) / hyperparams.gradient_norm_bound)
+    noisify = lambda grad: grad + torch.normal(mean=0, std=hyperparams.gradient_norm_bound * hyperparams.sigma, size=(grad.shape[0],))
     for _ in range(hyperparams.steps_per_epoch):
         # at each leapfrog step, sample a mini-batch of size batch_size
         hamiltonian.rebatch(1)
