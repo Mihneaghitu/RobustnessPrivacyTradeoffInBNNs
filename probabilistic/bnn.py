@@ -20,14 +20,14 @@ class BNN(ABC):
 class VanillaBNN(BNN, torch.nn.Module):
     def __init__(self):
         super(VanillaBNN, self).__init__()
-        self.linear = torch.nn.Sequential(
+        self.logits = torch.nn.Sequential(
             torch.nn.Linear(784, 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 10),
-            # torch.nn.Softmax(dim=1)
         )
+        self.outputs = torch.nn.Softmax(dim=1)
 
         # calculate the number of weights
         self.total_num_weights = 0
@@ -41,7 +41,8 @@ class VanillaBNN(BNN, torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
         y = torch.nn.Flatten()(x)
-        y = self.linear(y)
+        y = self.logits(y)
+        y = self.outputs(y)
 
         return y
 

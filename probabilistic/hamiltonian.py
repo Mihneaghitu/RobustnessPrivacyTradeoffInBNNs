@@ -10,21 +10,17 @@ from .bnn import BNN
 
 class Hamiltonian:
     def __init__(self, prior: Callable[[torch.Tensor], torch.Tensor], likelihood: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-                 m_variances: torch.Tensor, dset: Dataset, net: BNN = None) -> None:
+                 m_variances: torch.Tensor, dset: Dataset, net: BNN = None, batch_size: int = 1000) -> None:
         self.prior = prior
         self.likelihood = likelihood
         self.m_variances = m_variances.to(TORCH_DEVICE)
-        self.dset = DataLoader(dset, batch_size=5000, shuffle=True)
+        self.dset = DataLoader(dset, batch_size=batch_size, shuffle=True)
         self.net = net
         self.U = self._potential_bnn
         self.K = self._kinetic
 
     def grad_u(self, q: torch.Tensor):
-        # return torch.autograd.grad(outputs=self.U(q), inputs=q, retain_graph=True)[0]
-        q.grad.data.zero_()
-        self.U(q).backward(retain_graph=True)
-        return q.grad
-
+        return torch.autograd.grad(outputs=self.U(q), inputs=q, retain_graph=True)[0]
 
     def hamiltonian(self, q, p):
         return self.U(q) + self.K(p)
@@ -32,20 +28,22 @@ class Hamiltonian:
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, lr: float) -> torch.Tensor:
         return param - lr * grad
 
-    def joint_canonical_distribution(self, q: torch.Tensor, p: torch.Tensor, sgn=-1):
-        return torch.exp(sgn * self.hamiltonian(q, p)) # (1 / z) * exp(-H)
+    def energy_delta(self, q: torch.Tensor, p: torch.Tensor, current_q: torch.Tensor, current_p: torch.Tensor) -> torch.Tensor:
+        return torch.exp(- self.hamiltonian(q, p) + self.hamiltonian(current_q, current_p))
 
     def rebatch(self, batch_size: int):
         self.dset = DataLoader(self.dset.dataset, batch_size=batch_size, shuffle=True)
 
     def _potential_bnn(self, q: torch.Tensor) -> torch.Tensor:
+        # update the parameters (weights and biases) of the network
+        self.net.init_params(q)
         batch = next(iter(self.dset)) # correct because data is shuffled anyways
         xs, ys = batch[0].to(TORCH_DEVICE), batch[1].to(TORCH_DEVICE)
 
         return - self.prior(q) - self.likelihood(xs, ys, self.net).sum()
 
     def _kinetic(self, p: torch.Tensor) -> torch.Tensor:
-        return (p ** 2 / (0.5 * self.m_variances)).sum()
+        return (p ** 2 / (2 * self.m_variances)).sum()
 
 class HyperparamsHMC:
     def __init__(self, num_epochs: int, num_burnin_epochs: int, lf_step: float, steps_per_epoch: int = -1,

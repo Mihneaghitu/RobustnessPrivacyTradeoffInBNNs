@@ -16,8 +16,12 @@ class WeightModel:
         self.ll_var = ll_variance.to(TORCH_DEVICE)
 
     def log_gaussian_prior(self, q):
-        # this assumes the same variance for every dimension
-        return - (1 / (2 * self.prior_variance)) * (torch.t(q - self.prior_mean) @ (q - self.prior_mean))
+        # this assumes the same variance for every dimension - i.e. diagonal covariance matrix
+        # when prior_variance is a vector, this is the product of all its elements,
+        cov_mx_det = torch.prod(self.prior_variance)
+        if self.prior_variance.shape[0] == 1:
+            cov_mx_det = torch.pow(self.prior_variance, q.shape[0])
+        return - (1 / (2 * cov_mx_det)) * (torch.t(q - self.prior_mean) @ (q - self.prior_mean))
 
     def log_gaussian_likelihood(self, dset_x: torch.Tensor, dset_y: torch.Tensor, net: torch.nn.Module) -> torch.Tensor:
         # at this point the weights from the last Markov Chain sample are set, do a forward pass
@@ -26,7 +30,7 @@ class WeightModel:
         batch_diff = torch.nn.functional.cross_entropy(pred_y, dset_y, reduction='none')
         # compute the likelihood which is ~ N(y | pred_y, ll_sigma)
         # again, this assumes the same variance for every dimension
-        return (- 0.5 * (batch_diff ** 2) / self.ll_var)
+        return - (1 / (2 * self.ll_var)) * (batch_diff ** 2)
 
     def uniform_prior(self, q):
         volume = (self.b - self.a) ** q.shape[0]

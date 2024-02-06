@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torchvision
@@ -9,10 +9,11 @@ from probabilistic.bnn import BNN
 from probabilistic.hamiltonian import Hamiltonian, HyperparamsHMC
 
 
-def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> (torch.Tensor, torch.Tensor):
+def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     # important to start recording the gradient
     q = current_q.clone().detach().requires_grad_(True)
     p = torch.normal(mean=0, std=1, size=(current_q.shape[0],)).requires_grad_(True)
+    current_p = p.clone().detach().to(TORCH_DEVICE)
     q, p = q.to(TORCH_DEVICE), p.to(TORCH_DEVICE)
     grad_q = hamiltonian.grad_u(q)
     if dp:
@@ -20,8 +21,8 @@ def init_position_and_momentum(current_q: torch.Tensor, hamiltonian: Hamiltonian
         grad_q /= max(1, torch.norm(grad_q) / hyperparams.gradient_norm_bound)
         grad_q += torch.normal(mean=0, std=hyperparams.sigma * hyperparams.gradient_norm_bound, size=(grad_q.shape[0],))
     p = hamiltonian.update_param(p, grad_q, hyperparams.lf_step / 2)
-    q = q + hyperparams.lf_step * p
-    return q, p
+    q = hamiltonian.update_param(q, p, - hyperparams.lf_step)
+    return q, p, current_p
 
 def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False) -> List[torch.Tensor]:
     torch.autograd.set_detect_anomaly(True)
@@ -32,12 +33,11 @@ def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False)
     # init params
     samples = []
     # q is now a vector of flattened weights
-    current_q = torch.rand(total_num_params).to(TORCH_DEVICE) * 2 - 1 # Uniform(-1, 1)
+    current_q = torch.normal(mean=0, std=1, size=(total_num_params,)).to(TORCH_DEVICE)
     for epoch in range(hyperparams.num_epochs):
         print(f'Epoch {epoch}...')
 
-        q, p = init_position_and_momentum(current_q, hamiltonian, hyperparams.lf_step, (dp, hyperparams.gradient_norm_bound))
-        current_p = p
+        q, p, current_p = init_position_and_momentum(current_q, hamiltonian, hyperparams, dp)
 
         # TODO: might be worth generalizing this to an enumeration of the different types of inner loops
         if dp:
@@ -47,16 +47,15 @@ def hmc(hamiltonian: Hamiltonian, hyperparams: HyperparamsHMC, dp: bool = False)
             # dp hmc
             q, p = integration_step(q, p, hamiltonian, hyperparams)
 
-        old_state_energy = hamiltonian.joint_canonical_distribution(current_q, current_p)
-        new_state_energy = hamiltonian.joint_canonical_distribution(q, p, 1)
-        acceptance_probability = min(1, old_state_energy * new_state_energy)
-        if torch.rand(1)[0] < acceptance_probability:
+        states_energy_diff = hamiltonian.energy_delta(q, p, current_q, current_p)
+        acceptance_probability = min(1, float(states_energy_diff))
+        print(f'Acceptance probability: {acceptance_probability}')
+        if float(torch.rand(1)) < acceptance_probability:
             current_q = q.clone().detach()
             current_p = p.clone().detach()
-            # update the weights of the network
-            net.init_params(current_q)
             if epoch > hyperparams.num_burnin_epochs:
                 samples.append(current_q)
+                print(f'Added sample {current_q}')
 
     return samples
 
@@ -94,11 +93,11 @@ def integration_step_dp(q: torch.Tensor, p: torch.Tensor, hamiltonian: Hamiltoni
 
 def test_hmc(net: BNN, param_samples: List[torch.Tensor], test_data: torchvision.datasets.mnist):
     net.eval()
-    data_loader = DataLoader(test_data, batch_size=100, shuffle=True)
+    data_loader = DataLoader(test_data, batch_size=5000, shuffle=True)
 
     predictive_distribution = []
     for idx, param_sample in enumerate(param_samples):
-        if idx % 10 == 0:
+        if idx % 7 == 0:
             print(f'Predicting with weight sample {idx}...')
             # mem_reserved = torch.cuda.memory_reserved(TORCH_DEVICE)
             # mem_allocated = torch.cuda.memory_allocated(TORCH_DEVICE)
@@ -112,8 +111,8 @@ def test_hmc(net: BNN, param_samples: List[torch.Tensor], test_data: torchvision
         with torch.no_grad():
             for data, _ in data_loader:
                 batch_data_test = data.to(TORCH_DEVICE)
-                batch_logits = net(batch_data_test)
-                sample_predictions.append(batch_logits)
+                batch_softmax = net(batch_data_test)
+                sample_predictions.append(batch_softmax)
 
         # flatten it into a single tensor of size test_size x labels
         predictive_distribution.append(torch.cat(sample_predictions))
@@ -122,10 +121,12 @@ def test_hmc(net: BNN, param_samples: List[torch.Tensor], test_data: torchvision
 
     print("shape of all predictions: ", predictive_distribution.shape)
 
-    logits_mean = torch.mean(predictive_distribution, dim=0)
-    # now that we have the mean logits, put everything through a softmax to get the predictive distribution
-    predicted_label_mean = torch.nn.functional.softmax(logits_mean, dim=1).argmax(dim=1)
+    # Get the most often encountered class for each example
+    predicted_label_mean = predictive_distribution.mean(dim=0)
+    print("shape of mean predictions: ", predicted_label_mean.shape)
+    predicted_labels = torch.argmax(predicted_label_mean, dim=1)
+    print("shape of predicted labels: ", predicted_labels.shape)
     # compute the accuracy
-    accuracy = (predicted_label_mean == test_data.targets).sum().item() / len(test_data.targets)
+    accuracy = (predicted_labels == test_data.targets.to(TORCH_DEVICE)).sum().item() / len(test_data.targets)
 
     return accuracy

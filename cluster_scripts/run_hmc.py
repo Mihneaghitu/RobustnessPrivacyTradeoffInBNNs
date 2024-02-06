@@ -21,15 +21,15 @@ def train_hmc(bnn_net: BNN, dp: bool = False) -> List[torch.Tensor]:
     w_likelihood_func = weight_probabilistic_model.log_gaussian_likelihood
 
     momentum_variances = torch.ones(1)
-    hamiltonian = Hamiltonian(w_prior_func, w_likelihood_func, momentum_variances, train_data, net=bnn_net)
+    hamiltonian = Hamiltonian(w_prior_func, w_likelihood_func, momentum_variances, train_data, net=bnn_net, batch_size=1000)
 
-    hps = HyperparamsHMC(num_epochs=300, num_burnin_epochs=20, lf_step=0.01, steps_per_epoch=30)
+    hps = HyperparamsHMC(num_epochs=1500, num_burnin_epochs=150, lf_step=0.0005, steps_per_epoch=30)
 
     if dp:
         hps.gradient_norm_bound = 0.5
     param_samples = hmc(hamiltonian, hps, dp=dp)
 
-    print(param_samples[:20] + param_samples[100:120] + param_samples[200:220] + param_samples[290:300])
+    print(param_samples[:20] + param_samples[500:520] + param_samples[1000:1020] + param_samples[1470:1495])
     return param_samples
 
 vanilla_bnn = VanillaBNN()
@@ -40,6 +40,7 @@ if sys.argv[1] == 'dp':
     WITH_DP = True
 
 samples = train_hmc(vanilla_bnn, dp=WITH_DP)
+print(f'Number of samples: {len(samples)}')
 test_data = load_mnist()[1]
 accuracy = test_hmc(vanilla_bnn, samples, test_data)
 print(f'Accuracy: {accuracy}')
