@@ -6,5 +6,5 @@ export PATH=/vol/bitbucket/mg2720/fypvenv/bin/:$PATH
 source activate
 which python
 source /vol/cuda/12.2.0/setup.sh
-cd ~/fyp/RobustnessPrivacyTradeoffInBNNs/scripts
+cd ~/fyp/RobustnessPrivacyTradeoffInBNNs/cluster_scripts
 python run_hmc.py $1
