@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=ALL # required to send email notifcations
-#SBATCH --mail-user=<mg2720>
 export PATH=/vol/bitbucket/mg2720/fypvenv/bin/:$PATH
 source activate
 which python
