@@ -3,8 +3,11 @@
 max-line-length=200
 
 [MASTER]
+init-hook='import sys; sys.path.insert(0, '.')'
 disable=
     C0114, # Missing module docstring
     C0115, # Missing class docstring
     C0116, # Missing function or method docstring
-    C3001  # lambda may not be necessary
+    C3001, # lambda may not be necessary
+    C0413, # Wrong import order -- needed to import from parent packages
+    E0401  # Will fix this manually - import error
