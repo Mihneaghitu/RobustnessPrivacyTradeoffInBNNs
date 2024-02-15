@@ -9,7 +9,7 @@ def neg_log_normal_pdf(x, mu, sigma, reduce_metric='mean'):
         sigma = sigma.repeat(x.shape[0], 1).reshape(x.shape)
 
     distribution = Normal(mu, sigma)
-    neg_log_prob = - distribution.log_prob(x)
+    neg_log_prob = torch.neg(distribution.log_prob(x))
     if reduce_metric == 'mean':
         neg_log_prob = torch.mean(neg_log_prob)
 

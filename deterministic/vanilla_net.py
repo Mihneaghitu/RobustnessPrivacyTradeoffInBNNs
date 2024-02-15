@@ -22,3 +22,6 @@ class VanillaNetLinear(torch.nn.Module):
 
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param - learning_rate * grad
+
+    def add_noise(self, param: torch.Tensor, noise: torch.Tensor, learning_rate: float) -> torch.Tensor:
+        return param + learning_rate * noise

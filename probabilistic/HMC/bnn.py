@@ -48,7 +48,8 @@ class VanillaBNN(torch.nn.Module):
         params = torch.tensor([]).to(TORCH_DEVICE)
         for param in self.named_parameters():
             if 'weight' in param[0]:
-                params = torch.cat((params, param[1].flatten()))
+                param_data = param[1].detach().clone().flatten()
+                params = torch.cat((params, param_data))
 
         return params
 
@@ -56,7 +57,7 @@ class VanillaBNN(torch.nn.Module):
         for param in self.named_parameters():
             if 'weight' in param[0]:
                 num_weights_layer = torch.prod(torch.tensor(param[1].shape))
-                param[1].data = params_sample[:num_weights_layer].reshape(param[1].shape)
+                param[1].data = params_sample[:num_weights_layer].reshape(param[1].shape).detach().clone()
                 params_sample = params_sample[num_weights_layer:]
 
     def set_zero_grads(self):
@@ -68,6 +69,7 @@ class VanillaBNN(torch.nn.Module):
         params_grads = torch.tensor([]).to(TORCH_DEVICE)
         for param in self.named_parameters():
             if 'weight' in param[0]:
-                params_grads = torch.cat((params_grads, param[1].grad.flatten()))
+                param_grad_data = param[1].grad.detach().clone().flatten()
+                params_grads = torch.cat((params_grads, param_grad_data))
 
         return params_grads

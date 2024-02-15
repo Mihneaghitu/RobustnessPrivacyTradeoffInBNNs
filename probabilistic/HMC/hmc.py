@@ -161,12 +161,12 @@ class HamiltonianMonteCarlo:
 
 
 def run_experiment():
-    hps = HyperparamsHMC(num_epochs=10,
-                         num_burnin_epochs=3,
+    hps = HyperparamsHMC(num_epochs=4,
+                         num_burnin_epochs=1,
                          lf_step=0.002,
                          momentum_var=torch.tensor(1.0),
                          prior_mu=torch.tensor(0.0),
-                         prior_var=torch.tensor(0.5),
+                         prior_var=torch.tensor(1.0),
                          steps_per_epoch=20,
                          batch_size=1000)
 
