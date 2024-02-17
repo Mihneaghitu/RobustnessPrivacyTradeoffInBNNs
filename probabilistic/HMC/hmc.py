@@ -4,6 +4,7 @@ from typing import List, Tuple
 
 import torch
 import torch.distributions as dist
+import torch.nn.functional as F
 import torchvision
 from torch.utils.data import DataLoader
 
@@ -101,7 +102,7 @@ class HamiltonianMonteCarlo:
             for data, target in data_loader:
                 batch_data_test, batch_target_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
                 y_hat = self.net(batch_data_test)
-                loss = torch.nn.functional.cross_entropy(y_hat, batch_target_test)
+                loss = F.cross_entropy(y_hat, batch_target_test)
                 losses.append(loss.item())
                 # also compute accuracy -- torch.max returns (values, indices)
                 _, predicted = torch.max(y_hat, 1)
@@ -112,6 +113,32 @@ class HamiltonianMonteCarlo:
         print(f"Accuracies: {accuracies}")
 
         return sum(accuracies) / len(accuracies)
+
+
+    def test_hmc_with_average_logits(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
+        average_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
+        for sample in posterior_samples:
+            self.net.set_params(sample)
+            self.net.eval()
+            batch_size = 32
+            data_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
+
+            sample_results = torch.tensor([]).to(TORCH_DEVICE)
+            for data, _ in data_loader:
+                batch_data_test  = data.to(TORCH_DEVICE)
+                y_hat = self.net(batch_data_test)
+                sample_results = torch.cat((sample_results, y_hat), dim=0)
+            average_logits += sample_results / len(posterior_samples)
+
+        print(f"Len posterior samples: {len(posterior_samples)}")
+        correct, total = 0, test_set.targets.size(0)
+        for i in range(test_set.targets.size(0)):
+            avg_logit = average_logits[i]
+            index_of_max_logit = torch.argmax(avg_logit)
+            if index_of_max_logit == test_set.targets[i]:
+                correct += 1
+
+        return 100 * correct / total
 
     # ---------------------------------------------------------
     # --------------------- Helper functions ------------------
@@ -192,3 +219,5 @@ train_data, test_data = load_mnist("../../")
 samples = hmc.train_mnist_vanilla(train_data)
 mean_accuracy = hmc.test_mnist_bnn(test_data, samples)
 print(f'Mean accuracy of the network on the 10000 test images: {mean_accuracy} %')
+acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
+print(f'Accuracy with average logits: {acc_with_average_logits} %')
