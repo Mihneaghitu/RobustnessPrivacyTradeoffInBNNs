@@ -1,7 +1,10 @@
 import copy
+from dataclasses import dataclass
 from typing import List
 
 import torch
+
+from globals import TORCH_DEVICE
 
 
 class VanillaBnnLinear(torch.nn.Module):
@@ -36,3 +39,18 @@ class VanillaBnnLinear(torch.nn.Module):
 
     def get_params(self) -> List[torch.Tensor]:
         return [copy.deepcopy(param) for param in self.parameters()]
+
+@dataclass
+class HyperparamsHMC:
+    num_epochs: int
+    num_burnin_epochs: int
+    step_size: float
+    lf_steps: int
+    criterion: torch.nn.Module
+    batch_size: int
+    momentum_std: float = 1.0
+    prior_mu: float = 0.0
+    prior_std: float = 1.0
+    ll_std: float = 1.0
+    gradient_norm_bound: float = -1
+    dp_sigma: float = 1.0
