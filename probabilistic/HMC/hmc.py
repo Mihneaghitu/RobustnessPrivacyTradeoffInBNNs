@@ -1,186 +1,194 @@
+import copy
 import sys
 from typing import List, Tuple
 
 import torch
+import torch.distributions as dist
 import torchvision
 from torch.utils.data import DataLoader
 
 sys.path.append('../../')
-sys.path.append('../')
 
 from dataset_utils import load_mnist
 from globals import TORCH_DEVICE
-from probabilistic.HMC.bnn import VanillaBNN
-from probabilistic.HMC.losses import (cross_entropy_likelihood,
-                                      neg_log_normal_pdf)
+from probabilistic.HMC.vanilla_bnn import HyperparamsHMC, VanillaBnnLinear
 
-
-class HyperparamsHMC:
-    def __init__(self, num_epochs, num_burnin_epochs, lf_step, momentum_var = torch.tensor(1.0), prior_mu = torch.tensor(0.0), prior_var = torch.tensor(1.0),
-                 ll_var = torch.tensor(1.0), steps_per_epoch = -1, batch_size = 1, batches_per_epoch = -1, gradient_norm_bound = -1, dp_sigma = 1.0):
-        self.num_epochs = num_epochs
-        self.num_burnin_epochs = num_burnin_epochs
-        self.lf_step = lf_step
-        self.momentum_var = momentum_var.to(TORCH_DEVICE)
-        self.prior_mu = prior_mu.to(TORCH_DEVICE)
-        self.prior_var = prior_var.to(TORCH_DEVICE)
-        self.ll_var = ll_var.to(TORCH_DEVICE)
-        self.steps_per_epoch = steps_per_epoch
-        self.batch_size = batch_size
-        self.batches_per_epoch = batches_per_epoch
-        self.gradient_norm_bound = gradient_norm_bound
-        self.sigma = dp_sigma
 
 class HamiltonianMonteCarlo:
-    def __init__(self, hyperparams: HyperparamsHMC, net: VanillaBNN, loss_fn: callable, likelihood: callable, prior: callable) -> None:
-        self.hps = hyperparams
+    def __init__(self, net: VanillaBnnLinear, hyperparameters: HyperparamsHMC) -> None:
         self.net = net
-        self.loss_fn = loss_fn
-        self.likelihood = likelihood
-        self.prior = prior
+        self.hps = hyperparameters
 
-    def train_hmc(self, train_data: torchvision.datasets.mnist):
-        accepted_samples = []
-        current_q = self.net.get_weights()
-        train_set = DataLoader(train_data, batch_size=self.hps.batch_size, shuffle=True)
-        eps = self.hps.lf_step
-        self.net.train()
 
-        # train loop
+    def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
+        # Just don't ask
+        print_freq = 500 // (self.hps.batch_size / 64)
+
+        data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
+        posterior_samples = []
+
+        # Initialize the parameters with a standard normal --
+        # q -> current net params, current q -> start net params
+        current_q = []
+        for param in self.net.named_parameters():
+            if 'weight' in param[0]:
+                init_vals = torch.normal(mean=0.0, std=0.1, size=tuple(param[1].shape)).to(TORCH_DEVICE)
+                param[1].data = torch.nn.parameter.Parameter(init_vals)
+        for param in self.net.parameters():
+            current_q.append(copy.deepcopy(param))
+
+        running_loss_ce = 0.0
         for epoch in range(self.hps.num_epochs):
-            # ------- INITIALIZATION -------
-            q = current_q.detach().clone().requires_grad_(True)
-            # resample p from a normal distribution with mean 0 and variance from config
-            p = torch.normal(mean=0, std=torch.sqrt(self.hps.momentum_var), size=(current_q.shape[0],)).requires_grad_(True)
-            p, q = p.to(TORCH_DEVICE), q.to(TORCH_DEVICE)
-            current_p = p.detach().clone()
+            losses, p = [], []
+            for param in self.net.parameters():
+                p.append(dist.Normal(0, self.hps.momentum_std).sample(param.shape).to(TORCH_DEVICE))
+            current_p = copy.deepcopy(p)
 
-            print(f'Epoch {epoch}...')
-            x_train, y_train = self._get_batch(train_set)
-            # ------- END INITIALIZATION -------
+            # ------- half step for momentum -------
+            closs = self._get_nll_loss(self.hps.criterion, data_loader)
+            self._p_update(p, self.hps.step_size / 2)
+            for i in range(self.hps.lf_steps):
+                # ------------------- START q + eps * p -------------------
+                self._q_update(p, self.hps.step_size)
+                # ------------------- END q + eps * p -------------------
 
-            p = p - (eps / 2) * self.grad_U(q, x_train, y_train)
-            for leapfrog_step in range(self.hps.steps_per_epoch):
-                q = q + eps * p
-                x_train, y_train = self._get_batch(train_set)
-                self.net.set_weights(q)
-                if leapfrog_step != self.hps.steps_per_epoch - 1:
-                    p = p - eps * self.grad_U(q, x_train, y_train)
-            p = p - (eps / 2) * self.grad_U(q, x_train, y_train)
-            p = -p
+                # ------------------- START p - eps * grad_U(q) -------------------
+                if i == self.hps.lf_steps - 1:
+                    break
+                closs = self._get_nll_loss(self.hps.criterion, data_loader)
+                self._p_update(p, self.hps.step_size)
+                # ------------------- END p - eps * grad_U(q) -------------------
 
+                losses.append(closs.item())
+                running_loss_ce += closs.item()
+                if i % print_freq == print_freq - 1:
+                    print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
+                    running_loss_ce = 0.0
 
-            u = torch.rand(1).to(TORCH_DEVICE)
-            train_set = DataLoader(train_data, batch_size=5000, shuffle=True)
-            x_train, y_train = self._get_batch(train_set)
-            energy_start = self.potential_energy(current_q, x_train, y_train) + self.kinetic_energy(current_p)
-            energy_end = self.potential_energy(q, x_train, y_train) + self.kinetic_energy(p)
+            # ------- final half step for momentum -------
+            closs = self._get_nll_loss(self.hps.criterion, data_loader)
+            self._p_update(p, self.hps.step_size / 2)
+            for idx, p_val in enumerate(p):
+                p[idx] = -p_val
 
-            acceptance_probability = min(1, torch.exp(energy_end - energy_start))
-            print(f'Acceptance probability: {acceptance_probability}')
+            # metropolis-hastings acceptance step
+            q = self.net.get_params()
+            initial_energy = self._get_energy(current_q, current_p, self.hps.criterion, data_loader)
+            end_energy = self._get_energy(q, p, self.hps.criterion, data_loader)
+            acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
+            print(f'Acceptance probability: {acceptance_prob}')
 
-            if u < acceptance_probability:
-                current_q = q.detach().clone()
-                current_p = p.detach().clone()
+            if torch.rand(1).to(TORCH_DEVICE) < acceptance_prob:
+                current_q = q
+                current_p = p
+                if epoch > self.hps.num_burnin_epochs - 1:
+                    print(f'Accepted sample at epoch {epoch + 1}...')
+                    posterior_samples.append(current_q)
+            self.net.set_params(current_q)
+            self.net.zero_grad()
 
-                print(f'Accepted sample {current_q}')
-                if epoch > self.hps.num_burnin_epochs:
-                    accepted_samples.append(current_q)
+        return posterior_samples
 
-            self.net.set_weights(current_q)
+    def test_mnist_bnn(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
+        accuracies = []
+        for sample in posterior_samples:
+            self.net.set_params(sample)
+            self.net.eval()
+            batch_size = 32
+            data_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, num_workers=2)
+            losses, correct, total = [], 0, 0
 
-        return accepted_samples
+            for data, target in data_loader:
+                batch_data_test, batch_target_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
+                y_hat = self.net(batch_data_test)
+                loss = torch.nn.functional.cross_entropy(y_hat, batch_target_test)
+                losses.append(loss.item())
+                # also compute accuracy -- torch.max returns (values, indices)
+                _, predicted = torch.max(y_hat, 1)
+                total += batch_target_test.size(0)
+                correct += (predicted == batch_target_test).sum().item()
 
-    def test_hmc(self, param_samples: List[torch.Tensor], test_data: torchvision.datasets.mnist):
-        self.net.eval()
-        data_loader = DataLoader(test_data, batch_size=5000, shuffle=True)
-        num_param_samples = len(param_samples)
+            accuracies.append(100 * correct / total)
+        print(f"Accuracies: {accuracies}")
 
-        predictive_distribution = []
-        criterion = torch.nn.Softmax(dim=1)
-        for idx, param_sample in enumerate(param_samples):
-            if idx % 7 == 0:
-                print(f'Predicting with weight sample {idx}...')
-            self.net.set_weights(param_sample)
-            sample_predictions = []
+        return sum(accuracies) / len(accuracies)
+
+    # ---------------------------------------------------------
+    # --------------------- Helper functions ------------------
+    # ---------------------------------------------------------
+
+    def _p_update(self, p: list, eps: float) -> None:
+        prior_loss = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
+        for idx, param in enumerate(self.net.parameters()):
+            ll_grad = param.grad
+            prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
+            prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
+            potential_energy_update = ll_grad + prior_grad
+            p[idx] = self.net.update_param(p[idx], potential_energy_update, eps)
+
+        self.net.zero_grad()
+
+    def _q_update(self, p: list, eps: float) -> None:
+        for idx, param in enumerate(self.net.parameters()):
+            new_val = self.net.add_noise(param, p[idx], eps)
             with torch.no_grad():
-                for data, _ in data_loader:
-                    batch_data_test = data.to(TORCH_DEVICE)
-                    logits = self.net(batch_data_test)
-                    batch_softmax = criterion(logits)
-                    print(f"Shape of batch softmax: {batch_softmax.shape}")
-                    print(f"Batch softmax: {batch_softmax[:5, :]}")
-                    sample_predictions.append(batch_softmax)
+                param.copy_(new_val)
 
-            # flatten it into a single tensor of size test_size x labels
-            predictive_distribution.append(torch.cat(sample_predictions))
+    def _get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+        data = next(iter(data_loader))
+        batch_data, batch_target = data[0].to(TORCH_DEVICE), data[1].to(TORCH_DEVICE)
 
-        print(f"shape of all predictions: {num_param_samples} x {predictive_distribution[0].shape}")
-        predicted_label_mean = torch.zeros_like(predictive_distribution[0])
-        for i in range(num_param_samples):
-            predicted_label_mean += predictive_distribution[i]
-        predicted_label_mean /= num_param_samples
-
-        # Get the most often encountered class for each example
-        # predicted_label_mean = predictive_distribution.mean(dim=2)
-        print("shape of mean predictions: ", predicted_label_mean.shape)
-        predicted_labels = torch.argmax(predicted_label_mean, dim=1)
-        print("shape of predicted labels: ", predicted_labels.shape)
-        # compute the accuracy
-        accuracy = (predicted_labels == test_data.targets.to(TORCH_DEVICE)).sum().item() / len(test_data.targets)
-
-        return accuracy
+        return batch_data, batch_target
 
 
-    def potential_energy(self, q: torch.Tensor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        prior_val = self.prior(q, self.hps.prior_mu, torch.sqrt(self.hps.prior_var))
-        likelihood_val = self.likelihood(x, y, self.net, self.loss_fn)
+    def _get_nll_loss(self, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+        batch_data, batch_target = self._get_batch(data_loader)
+        # Forward pass
+        y_hat = self.net(batch_data)
+        closs = criterion(y_hat, batch_target)
+        self.net.zero_grad()
+        closs.backward()
 
-        return likelihood_val + prior_val
+        return closs
 
-    def grad_U(self, q: torch.Tensor, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        prior_val = self.prior(q, self.hps.prior_mu, torch.sqrt(self.hps.prior_var))
-        likelihood_val = self.likelihood(x, y, self.net, self.loss_fn)
-        print(f"Cross entropy: {likelihood_val}")
+    # this is wrong somehow
+    def _get_energy(self, q: list, p: list, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+        # save the current parameters
+        start_params = self.net.get_params()
 
-        grad_prior = torch.autograd.grad(outputs=prior_val, inputs=q)[0]
-        likelihood_val.backward()
-        grad_likelihood = self.net.get_weight_grads()
+        # first update the nk params
+        for idx, param in enumerate(self.net.parameters()):
+            with torch.no_grad():
+                param.copy_(copy.deepcopy(q[idx]))
 
-        # reset the gradients
-        self.net.set_zero_grads()
+        # compute the potential energy
+        batch_data, batch_target = self._get_batch(data_loader)
+        closs = criterion(self.net(batch_data), batch_target)
+        prior_loss = torch.tensor(0.0).to(TORCH_DEVICE)
+        for idx, param in enumerate(self.net.parameters()):
+            prior_loss += torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
+        potential_energy = closs + prior_loss
 
-        return grad_likelihood + grad_prior
+        # compute the kinetic energy
+        kinetic_energy = torch.tensor(0.0).to(TORCH_DEVICE)
+        for idx, p_val in enumerate(p):
+            kinetic_energy = kinetic_energy + torch.sum(p_val * p_val) / 2
 
-    def kinetic_energy(self, p: torch.Tensor) -> torch.Tensor:
-        return (p ** 2 / (2 * self.hps.momentum_var)).sum()
-
-    def _get_batch(self, data_loader: DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
-        batch = next(iter(data_loader))
-        return batch[0].to(TORCH_DEVICE), batch[1].to(TORCH_DEVICE)
+        # reset the parameters
+        self.net.set_params(start_params)
+        return potential_energy + kinetic_energy
 
 
-def run_experiment():
-    hps = HyperparamsHMC(num_epochs=4,
-                         num_burnin_epochs=1,
-                         lf_step=0.002,
-                         momentum_var=torch.tensor(1.0),
-                         prior_mu=torch.tensor(0.0),
-                         prior_var=torch.tensor(1.0),
-                         steps_per_epoch=20,
-                         batch_size=1000)
+# Setup
+print(f"Using device: {TORCH_DEVICE}")
+# NOTE: lf_steps = len(train_data) // batch_size = 60000 // batch_size = 468 -- this is to see all the dataset for one numerical integration step
+hyperparams = HyperparamsHMC(num_epochs=10, num_burnin_epochs=5, step_size=0.001, lf_steps=468, criterion=torch.nn.CrossEntropyLoss(),
+                             batch_size=128, momentum_std=0.025)
+VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 
-    likelihood = cross_entropy_likelihood
-    prior = neg_log_normal_pdf
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
-    net = VanillaBNN().to(TORCH_DEVICE)
-
-    hmc = HamiltonianMonteCarlo(hps, net, loss_fn, likelihood, prior)
-    train_data, test_data = load_mnist("../../")
-
-    hmc_samples = hmc.train_hmc(train_data)
-
-    accuracy = hmc.test_hmc(hmc_samples, test_data)
-    print(f'Accuracy: {accuracy}')
-
-run_experiment()
+# Train and test
+train_data, test_data = load_mnist("../../")
+samples = hmc.train_mnist_vanilla(train_data)
+mean_accuracy = hmc.test_mnist_bnn(test_data, samples)
+print(f'Mean accuracy of the network on the 10000 test images: {mean_accuracy} %')
