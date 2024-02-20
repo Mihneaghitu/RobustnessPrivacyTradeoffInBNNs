@@ -23,7 +23,7 @@ class HamiltonianMonteCarlo:
 
     def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         # Just don't ask
-        print_freq = 500 // (self.hps.batch_size / 64)
+        print_freq = self.hps.lf_steps - 1 # 500 // (self.hps.batch_size / 64)
 
         data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
         posterior_samples = []
@@ -79,7 +79,7 @@ class HamiltonianMonteCarlo:
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             print(f'Acceptance probability: {acceptance_prob}')
 
-            if torch.rand(1).to(TORCH_DEVICE) < acceptance_prob:
+            if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
                 current_p = p
                 if epoch > self.hps.num_burnin_epochs - 1:
@@ -150,8 +150,14 @@ class HamiltonianMonteCarlo:
             ll_grad = param.grad
             prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
             prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
-            potential_energy_update = ll_grad + prior_grad
-            p[idx] = self.net.update_param(p[idx], potential_energy_update, eps)
+            potential_energy_grad = ll_grad + prior_grad
+            if self.hps.run_dp:
+                # clip the gradient norm (first term) and add noise (second term)
+                potential_energy_grad /= max(1, torch.norm(potential_energy_grad) / hyperparams.grad_norm_bound)
+                dp_noise = dist.Normal(0, self.hps.dp_sigma * self.hps.grad_norm_bound).sample(potential_energy_grad.shape).to(TORCH_DEVICE)
+                # add the mean noise across the batch to grad_U
+                potential_energy_grad += dp_noise / self.hps.batch_size
+            p[idx] = self.net.update_param(p[idx], potential_energy_grad, eps)
 
         self.net.zero_grad()
 
@@ -209,8 +215,8 @@ class HamiltonianMonteCarlo:
 # Setup
 print(f"Using device: {TORCH_DEVICE}")
 # NOTE: lf_steps = len(train_data) // batch_size = 60000 // batch_size = 468 -- this is to see all the dataset for one numerical integration step
-hyperparams = HyperparamsHMC(num_epochs=10, num_burnin_epochs=5, step_size=0.001, lf_steps=468, criterion=torch.nn.CrossEntropyLoss(),
-                             batch_size=128, momentum_std=0.025)
+hyperparams = HyperparamsHMC(num_epochs=15, num_burnin_epochs=5, step_size=0.01, lf_steps=50, criterion=torch.nn.CrossEntropyLoss(),
+                             batch_size=256, momentum_std=0.05, run_dp=True, grad_norm_bound=2.0, dp_sigma=0.001)
 VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
 hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 

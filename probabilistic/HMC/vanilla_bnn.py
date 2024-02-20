@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import List
 
 import torch
+import torch.distributions as dist
 
 from globals import TORCH_DEVICE
 
@@ -52,5 +53,6 @@ class HyperparamsHMC:
     prior_mu: float = 0.0
     prior_std: float = 1.0
     ll_std: float = 1.0
-    gradient_norm_bound: float = -1
+    run_dp: bool = False
+    grad_norm_bound: float = -1
     dp_sigma: float = 1.0
