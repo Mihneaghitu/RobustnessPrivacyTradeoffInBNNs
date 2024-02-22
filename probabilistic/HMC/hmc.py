@@ -6,6 +6,7 @@ import torch
 import torch.distributions as dist
 import torch.nn.functional as F
 import torchvision
+import wandb
 from torch.utils.data import DataLoader
 
 sys.path.append('../../')
@@ -65,6 +66,8 @@ class HamiltonianMonteCarlo:
                 if i % print_freq == print_freq - 1:
                     print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
                     running_loss_ce = 0.0
+            wandb.log({'cross_entropy_loss': losses[-1]})
+            wandb.log({'epoch': epoch + 1})
 
             # ------- final half step for momentum -------
             closs = self._get_nll_loss(self.hps.criterion, data_loader)
@@ -90,7 +93,7 @@ class HamiltonianMonteCarlo:
 
         return posterior_samples
 
-    def test_mnist_bnn(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
+    def test_mnist_deterministic(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
         accuracies = []
         for sample in posterior_samples:
             self.net.set_params(sample)
@@ -138,10 +141,12 @@ class HamiltonianMonteCarlo:
             if index_of_max_logit == test_set.targets[i]:
                 correct += 1
 
+        wandb.log({'accuracy_with_average_logits': 100 * correct / total})
+
         return 100 * correct / total
 
     # ---------------------------------------------------------
-    # --------------------- Helper functions ------------------
+    # -------------------- Helper functions -------------------
     # ---------------------------------------------------------
 
     def _p_update(self, p: list, eps: float) -> None:
@@ -153,7 +158,7 @@ class HamiltonianMonteCarlo:
             potential_energy_grad = ll_grad + prior_grad
             if self.hps.run_dp:
                 # clip the gradient norm (first term) and add noise (second term)
-                potential_energy_grad /= max(1, torch.norm(potential_energy_grad) / hyperparams.grad_norm_bound)
+                potential_energy_grad /= max(1, torch.norm(potential_energy_grad) / self.hps.grad_norm_bound)
                 dp_noise = dist.Normal(0, self.hps.dp_sigma * self.hps.grad_norm_bound).sample(potential_energy_grad.shape).to(TORCH_DEVICE)
                 # add the mean noise across the batch to grad_U
                 potential_energy_grad += dp_noise / self.hps.batch_size
@@ -210,20 +215,3 @@ class HamiltonianMonteCarlo:
         # reset the parameters
         self.net.set_params(start_params)
         return potential_energy + kinetic_energy
-
-
-# Setup
-print(f"Using device: {TORCH_DEVICE}")
-# NOTE: lf_steps = len(train_data) // batch_size = 60000 // batch_size = 468 -- this is to see all the dataset for one numerical integration step
-hyperparams = HyperparamsHMC(num_epochs=15, num_burnin_epochs=5, step_size=0.01, lf_steps=50, criterion=torch.nn.CrossEntropyLoss(),
-                             batch_size=256, momentum_std=0.05, run_dp=True, grad_norm_bound=2.0, dp_sigma=0.001)
-VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
-hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
-
-# Train and test
-train_data, test_data = load_mnist("../../")
-samples = hmc.train_mnist_vanilla(train_data)
-mean_accuracy = hmc.test_mnist_bnn(test_data, samples)
-print(f'Mean accuracy of the network on the 10000 test images: {mean_accuracy} %')
-acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
-print(f'Accuracy with average logits: {acc_with_average_logits} %')
