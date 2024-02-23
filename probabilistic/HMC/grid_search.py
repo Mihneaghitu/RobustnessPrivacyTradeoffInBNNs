@@ -1,7 +1,7 @@
+import copy
 import sys
 
 import torch
-
 import wandb
 
 sys.path.append('../../')
@@ -10,35 +10,72 @@ from globals import TORCH_DEVICE
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.vanilla_bnn import HyperparamsHMC, VanillaBnnLinear
 
-wandb.login(key="6af656612e6115c4b189c6074dadbfc436f21439")
-params_no_dp_dict = {
-    "num_epochs": {
-        'values': [150]
-    },
-    "num_burnin_epochs": {
-        'values': [25]
-    },
-    "batch_size": {
-        'values':  [32, 64, 128, 256, 512]
-    },
-    "step_size": {
-        'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
-    },
-    "lf_steps": {
-        'values': [10, 25, 40, 50, 75, 100]
-    },
-    "momentum_std": {
-        'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
-    },
-}
-
-sweep_config = {
-    'method': 'grid',
-}
-sweep_config['parameters'] = params_no_dp_dict
-
 print(f"Using device: {TORCH_DEVICE}")
 VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+max_predictive_acc, optimal_samples = 0, None
+
+def default_config() -> dict:
+    no_dp_config = {
+        'method': 'grid',
+    }
+    params_no_dp_dict = {
+        "num_epochs": {
+            'values': [150]
+        },
+        "num_burnin_epochs": {
+            'values': [25]
+        },
+        "batch_size": {
+            'values':  [32, 64, 128, 256, 512]
+        },
+        "step_size": {
+            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+        },
+        "lf_steps": {
+            'values': [10, 25, 40, 50, 75, 100]
+        },
+        "momentum_std": {
+            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+        },
+    }
+    no_dp_config['parameters'] = params_no_dp_dict
+
+    return no_dp_config
+
+def dp_config() -> dict:
+    with_dp_config = {
+        'method': 'grid',
+    }
+    params_dp_dict = {
+        "num_epochs": {
+            'values': [150]
+        },
+        "num_burnin_epochs": {
+            'values': [25]
+        },
+        "batch_size": {
+            'values':  [32, 64, 128, 256, 512]
+        },
+        "step_size": {
+            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+        },
+        "lf_steps": {
+            'values': [10, 25, 40, 50, 75, 100, 125, 150]
+        },
+        "momentum_std": {
+            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+        },
+        "grad_norm_bound": {
+            'values': [0.1, 0.5, 1.0, 2.0, 5.0]
+        },
+        "dp_sigma": {
+            'values': [0.0005, 0.001, 0.005, 0.01, 0.025]
+        }
+    }
+    with_dp_config['parameters'] = params_dp_dict
+
+    return with_dp_config
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 # -------------------------------------- Grid Search Without Differential Privacy --------------------------------------
@@ -63,36 +100,21 @@ def grid_search_no_dp():
         train_data, test_data = load_mnist("../../")
         samples = hmc.train_mnist_vanilla(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
-        if acc_with_average_logits > max_mean_accuracy:
-            max_mean_accuracy = acc_with_average_logits
+        global max_predictive_acc, optimal_samples
+        if acc_with_average_logits > max_predictive_acc:
+            max_predictive_acc = acc_with_average_logits
+            optimal_samples = copy.deepcopy(samples)
         print(f'Accuracy with average logits: {acc_with_average_logits} %')
 
 
-predictive_acc, optimal_samples = 0, None
-sweep_id_1 = wandb.sweep(sweep_config, project="hmc_mnist_no_dp")
-wandb.agent(sweep_id=sweep_id_1, function=grid_search_no_dp)
-torch.save(optimal_samples, "optimal_samples_without_dp.pt")
 
 # ----------------------------------------------------------------------------------------------------------------------
 # -------------------------------------- Grid Search With Differential Privacy -----------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
 
-params_with_dp_dict = params_no_dp_dict.copy()
-params_with_dp_dict.update({
-    "grad_norm_bound": {
-        'values': [0.1, 0.5, 1.0, 2.0, 5.0]
-    },
-    "dp_sigma": {
-        'values': [0.0005, 0.001, 0.005, 0.01, 0.025]
-    }
-})
-sweep_config['parameters'] = params_with_dp_dict
-
 def grid_search_with_dp():
-    max_mean_accuracy, optimal_samples = 0, None
     with wandb.init():
-        grid_config = wandb.config['parameters']
-        print(grid_config)
+        grid_config = wandb.config
         hyperparams = HyperparamsHMC(
             num_epochs=grid_config.num_epochs,
             num_burnin_epochs=grid_config.num_burnin_epochs,
@@ -111,12 +133,32 @@ def grid_search_with_dp():
         train_data, test_data = load_mnist("../../")
         samples = hmc.train_mnist_vanilla(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
-        if acc_with_average_logits > max_mean_accuracy:
-            max_mean_accuracy = acc_with_average_logits
+        global max_predictive_acc, optimal_samples
+        if acc_with_average_logits > max_predictive_acc:
+            max_predictive_acc = acc_with_average_logits
+            optimal_samples = copy.deepcopy(samples)
         print(f'Accuracy with average logits: {acc_with_average_logits} %')
 
+def setup():
+    wandb.login(key="6af656612e6115c4b189c6074dadbfc436f21439")
 
-predictive_acc, optimal_samples = 0, None
-sweep_id_2 = wandb.sweep(sweep_config, project="hmc_mnist_with_dp")
-wandb.agent(sweep_id=sweep_id_2, function=grid_search_with_dp)
-torch.save(optimal_samples, "optimal_samples_with_dp.pt")
+def run_no_dp_sweep():
+    setup()
+    sweep_config = default_config()
+
+    global max_predictive_acc, optimal_samples
+    max_predictive_acc, optimal_samples = 0, None
+    sweep_id_1 = wandb.sweep(sweep_config, project="hmc_mnist_no_dp")
+    wandb.agent(sweep_id=sweep_id_1, function=grid_search_no_dp)
+    torch.save(optimal_samples, "optimal_samples_without_dp.pt")
+
+def run_dp_sweep():
+    setup()
+    sweep_config = dp_config()
+
+    global max_predictive_acc, optimal_samples
+    max_predictive_acc, optimal_samples = 0, None
+
+    sweep_id_2 = wandb.sweep(sweep_config, project="hmc_mnist_with_dp")
+    wandb.agent(sweep_id=sweep_id_2, function=grid_search_with_dp)
+    torch.save(optimal_samples, "optimal_samples_with_dp.pt")

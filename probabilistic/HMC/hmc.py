@@ -63,9 +63,9 @@ class HamiltonianMonteCarlo:
 
                 losses.append(closs.item())
                 running_loss_ce += closs.item()
-                if i % print_freq == print_freq - 1:
-                    print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
-                    running_loss_ce = 0.0
+                # if i % print_freq == print_freq - 1:
+                #     print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
+                #     running_loss_ce = 0.0
             wandb.log({'cross_entropy_loss': losses[-1]})
             wandb.log({'epoch': epoch + 1})
 
@@ -80,13 +80,13 @@ class HamiltonianMonteCarlo:
             initial_energy = self._get_energy(current_q, current_p, self.hps.criterion, data_loader)
             end_energy = self._get_energy(q, p, self.hps.criterion, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
-            print(f'Acceptance probability: {acceptance_prob}')
+            # print(f'Acceptance probability: {acceptance_prob}')
+            wandb.log({'acceptance_probability': acceptance_prob})
 
             if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
                 current_p = p
                 if epoch > self.hps.num_burnin_epochs - 1:
-                    print(f'Accepted sample at epoch {epoch + 1}...')
                     posterior_samples.append(current_q)
             self.net.set_params(current_q)
             self.net.zero_grad()
