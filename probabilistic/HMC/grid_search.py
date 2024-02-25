@@ -1,4 +1,5 @@
 import copy
+import os
 import sys
 
 import torch
@@ -12,30 +13,35 @@ from probabilistic.HMC.vanilla_bnn import HyperparamsHMC, VanillaBnnLinear
 
 print(f"Using device: {TORCH_DEVICE}")
 VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
-max_predictive_acc, optimal_samples = 0, None
+max_predictive_acc, optimal_samples, best_cnt = 0, None, 0
+train_data, test_data = load_mnist("../")
 
 def default_config() -> dict:
     no_dp_config = {
-        'method': 'grid',
+        'method': 'bayes',
+        'metric': {
+            'name': 'acc_with_average_logits',
+            'goal': 'maximize'
+        }
     }
     params_no_dp_dict = {
         "num_epochs": {
-            'values': [150]
+            'values': [250]
         },
         "num_burnin_epochs": {
-            'values': [25]
+            'values': [50]
         },
         "batch_size": {
-            'values':  [32, 64, 128, 256, 512]
+            'values':  [64, 128, 256, 512]
         },
         "step_size": {
-            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+            'values': [0.01, 0.05, 0.1]
         },
         "lf_steps": {
-            'values': [10, 25, 40, 50, 75, 100]
+            'values': [25, 50, 75, 100]
         },
         "momentum_std": {
-            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+            'values': [0.01, 0.05, 0.1]
         },
     }
     no_dp_config['parameters'] = params_no_dp_dict
@@ -44,32 +50,36 @@ def default_config() -> dict:
 
 def dp_config() -> dict:
     with_dp_config = {
-        'method': 'grid',
+        'method': 'bayes',
+        'metric': {
+            'name': 'acc_with_average_logits',
+            'goal': 'maximize'
+        }
     }
     params_dp_dict = {
         "num_epochs": {
-            'values': [150]
+            'values': [250]
         },
         "num_burnin_epochs": {
-            'values': [25]
+            'values': [50]
         },
         "batch_size": {
-            'values':  [32, 64, 128, 256, 512]
+            'values':  [64, 128, 256, 512]
         },
         "step_size": {
-            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+            'values': [0.01, 0.05, 0.1]
         },
         "lf_steps": {
-            'values': [10, 25, 40, 50, 75, 100, 125, 150]
+            'values': [25, 50, 75, 100]
         },
         "momentum_std": {
-            'values': [0.001, 0.005, 0.01, 0.025, 0.05, 0.1]
+            'values': [0.01, 0.05, 0.1]
         },
         "grad_norm_bound": {
-            'values': [0.1, 0.5, 1.0, 2.0, 5.0]
+            'values': [0.1, 0.5, 1.0, 5.0]
         },
         "dp_sigma": {
-            'values': [0.0005, 0.001, 0.005, 0.01, 0.025]
+            'values': [0.005, 0.01, 0.05, 0.1]
         }
     }
     with_dp_config['parameters'] = params_dp_dict
@@ -97,13 +107,16 @@ def grid_search_no_dp():
         hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 
         # Train and test
-        train_data, test_data = load_mnist("../../")
         samples = hmc.train_mnist_vanilla(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
-        global max_predictive_acc, optimal_samples
+        global max_predictive_acc, optimal_samples, best_cnt
         if acc_with_average_logits > max_predictive_acc:
             max_predictive_acc = acc_with_average_logits
             optimal_samples = copy.deepcopy(samples)
+        if acc_with_average_logits > 92.0:
+            torch.save(optimal_samples, os.path.join(wandb.run.dir, f"optimal_samples_over_92_{best_cnt}"))
+            best_cnt += 1
+
         print(f'Accuracy with average logits: {acc_with_average_logits} %')
 
 
@@ -130,13 +143,16 @@ def grid_search_with_dp():
         hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 
         # Train and test
-        train_data, test_data = load_mnist("../../")
         samples = hmc.train_mnist_vanilla(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
-        global max_predictive_acc, optimal_samples
+        global max_predictive_acc, optimal_samples, best_cnt
         if acc_with_average_logits > max_predictive_acc:
             max_predictive_acc = acc_with_average_logits
             optimal_samples = copy.deepcopy(samples)
+        if acc_with_average_logits > 92.0:
+            torch.save(optimal_samples, os.path.join(wandb.run.dir, f"optimal_samples_over_92_{best_cnt}"))
+            best_cnt += 1
+
         print(f'Accuracy with average logits: {acc_with_average_logits} %')
 
 def setup():
@@ -148,7 +164,7 @@ def run_no_dp_sweep():
 
     global max_predictive_acc, optimal_samples
     max_predictive_acc, optimal_samples = 0, None
-    sweep_id_1 = wandb.sweep(sweep_config, project="hmc_mnist_no_dp")
+    sweep_id_1 = wandb.sweep(sweep_config, project="hmc_mnist_no_dp_bayes")
     wandb.agent(sweep_id=sweep_id_1, function=grid_search_no_dp)
     torch.save(optimal_samples, "optimal_samples_without_dp.pt")
 
@@ -159,6 +175,6 @@ def run_dp_sweep():
     global max_predictive_acc, optimal_samples
     max_predictive_acc, optimal_samples = 0, None
 
-    sweep_id_2 = wandb.sweep(sweep_config, project="hmc_mnist_with_dp")
+    sweep_id_2 = wandb.sweep(sweep_config, project="hmc_mnist_with_dp_bayes")
     wandb.agent(sweep_id=sweep_id_2, function=grid_search_with_dp)
     torch.save(optimal_samples, "optimal_samples_with_dp.pt")

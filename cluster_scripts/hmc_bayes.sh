@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --gres=gpu:1
-#SBATCH --output=grid_search_smaller_grid.out
+#SBATCH --output=grid_search_bayes.out
 export PATH=/vol/bitbucket/mg2720/fypvenv/bin/:$PATH
 source activate
 which python
