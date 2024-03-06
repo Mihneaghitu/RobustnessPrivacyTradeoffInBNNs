@@ -13,7 +13,8 @@ sys.path.append('../../')
 
 from dataset_utils import load_mnist
 from globals import TORCH_DEVICE
-from probabilistic.HMC.vanilla_bnn import HyperparamsHMC, VanillaBnnLinear
+from probabilistic.HMC.hyperparams import HyperparamsHMC
+from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 
 
 class HamiltonianMonteCarlo:
@@ -47,18 +48,18 @@ class HamiltonianMonteCarlo:
             current_p = copy.deepcopy(p)
 
             # ------- half step for momentum -------
-            closs = self._get_nll_loss(self.hps.criterion, data_loader)
-            self._p_update(p, self.hps.step_size / 2)
+            closs = self.__get_nll_loss(self.hps.criterion, data_loader)
+            self.__p_update(p, self.hps.step_size / 2)
             for i in range(self.hps.lf_steps):
                 # ------------------- START q + eps * p -------------------
-                self._q_update(p, self.hps.step_size)
+                self.__q_update(p, self.hps.step_size)
                 # ------------------- END q + eps * p -------------------
 
                 # ------------------- START p - eps * grad_U(q) -------------------
                 if i == self.hps.lf_steps - 1:
                     break
-                closs = self._get_nll_loss(self.hps.criterion, data_loader)
-                self._p_update(p, self.hps.step_size)
+                closs = self.__get_nll_loss(self.hps.criterion, data_loader)
+                self.__p_update(p, self.hps.step_size)
                 # ------------------- END p - eps * grad_U(q) -------------------
 
                 losses.append(closs.item())
@@ -70,15 +71,15 @@ class HamiltonianMonteCarlo:
             wandb.log({'epoch': epoch + 1})
 
             # ------- final half step for momentum -------
-            closs = self._get_nll_loss(self.hps.criterion, data_loader)
-            self._p_update(p, self.hps.step_size / 2)
+            closs = self.__get_nll_loss(self.hps.criterion, data_loader)
+            self.__p_update(p, self.hps.step_size / 2)
             for idx, p_val in enumerate(p):
                 p[idx] = -p_val
 
             # metropolis-hastings acceptance step
             q = self.net.get_params()
-            initial_energy = self._get_energy(current_q, current_p, self.hps.criterion, data_loader)
-            end_energy = self._get_energy(q, p, self.hps.criterion, data_loader)
+            initial_energy = self.__get_energy(current_q, current_p, self.hps.criterion, data_loader)
+            end_energy = self.__get_energy(q, p, self.hps.criterion, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             # print(f'Acceptance probability: {acceptance_prob}')
             wandb.log({'acceptance_probability': acceptance_prob})
@@ -149,7 +150,7 @@ class HamiltonianMonteCarlo:
     # -------------------- Helper functions -------------------
     # ---------------------------------------------------------
 
-    def _p_update(self, p: list, eps: float) -> None:
+    def __p_update(self, p: list, eps: float) -> None:
         prior_loss = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
         for idx, param in enumerate(self.net.parameters()):
             ll_grad = param.grad
@@ -166,21 +167,14 @@ class HamiltonianMonteCarlo:
 
         self.net.zero_grad()
 
-    def _q_update(self, p: list, eps: float) -> None:
+    def __q_update(self, p: list, eps: float) -> None:
         for idx, param in enumerate(self.net.parameters()):
             new_val = self.net.add_noise(param, p[idx], eps)
             with torch.no_grad():
                 param.copy_(new_val)
 
-    def _get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
-        data = next(iter(data_loader))
-        batch_data, batch_target = data[0].to(TORCH_DEVICE), data[1].to(TORCH_DEVICE)
-
-        return batch_data, batch_target
-
-
-    def _get_nll_loss(self, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
-        batch_data, batch_target = self._get_batch(data_loader)
+    def __get_nll_loss(self, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+        batch_data, batch_target = self.__get_batch(data_loader)
         # Forward pass
         y_hat = self.net(batch_data)
         closs = criterion(y_hat, batch_target)
@@ -189,8 +183,7 @@ class HamiltonianMonteCarlo:
 
         return closs
 
-    # this is wrong somehow
-    def _get_energy(self, q: list, p: list, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+    def __get_energy(self, q: list, p: list, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
         # save the current parameters
         start_params = self.net.get_params()
 
@@ -200,7 +193,7 @@ class HamiltonianMonteCarlo:
                 param.copy_(copy.deepcopy(q[idx]))
 
         # compute the potential energy
-        batch_data, batch_target = self._get_batch(data_loader)
+        batch_data, batch_target = self.__get_batch(data_loader)
         closs = criterion(self.net(batch_data), batch_target)
         prior_loss = torch.tensor(0.0).to(TORCH_DEVICE)
         for idx, param in enumerate(self.net.parameters()):
@@ -215,3 +208,9 @@ class HamiltonianMonteCarlo:
         # reset the parameters
         self.net.set_params(start_params)
         return potential_energy + kinetic_energy
+
+    def __get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
+        data = next(iter(data_loader))
+        batch_data, batch_target = data[0].to(TORCH_DEVICE), data[1].to(TORCH_DEVICE)
+
+        return batch_data, batch_target

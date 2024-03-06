@@ -9,7 +9,8 @@ sys.path.append('../../')
 from dataset_utils import load_mnist
 from globals import TORCH_DEVICE
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
-from probabilistic.HMC.vanilla_bnn import HyperparamsHMC, VanillaBnnLinear
+from probabilistic.HMC.hyperparams import HyperparamsHMC
+from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 
 print(f"Using device: {TORCH_DEVICE}")
 VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)

@@ -8,6 +8,7 @@ from torchvision import transforms
 def load_mnist(rel_path: str = ".") -> Tuple[torchvision.datasets.MNIST, torchvision.datasets.MNIST]:
     curr_dir = os.getcwd()
     os.chdir(curr_dir + "/" + rel_path)
+    print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5, ), (0.5, ))
