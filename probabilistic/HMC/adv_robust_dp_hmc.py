@@ -1,5 +1,6 @@
 import copy
 import sys
+import traceback
 from typing import List, Tuple
 
 import torch
@@ -70,7 +71,7 @@ class AdvHamiltonianMonteCarlo:
             # wandb.log({'cross_entropy_loss': losses[-1]})
             # wandb.log({'epoch': epoch + 1})
 
-            # -------------- final half step for momentum --------------
+            # -------------- Final half step for momentum --------------
             closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
             for idx, p_val in enumerate(p):
                 p[idx] = -p_val
@@ -126,7 +127,7 @@ class AdvHamiltonianMonteCarlo:
 
     def gen_predictive_distrib_adv_examples(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.Tensor]) -> Dataset:
         # x_adv_theta = x + eps * sign(E_theta[grad_x log p(y | x, theta)])
-        mean_adv_examples_grads = torch.zeros_like(test_set.data, dtype=torch.float32, device=TORCH_DEVICE)
+        adv_examples_grads_sum = torch.zeros_like(test_set.data, dtype=torch.float32, device=TORCH_DEVICE)
         batch_size = 1000
         data_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
 
@@ -146,9 +147,9 @@ class AdvHamiltonianMonteCarlo:
                 self.net.zero_grad()
                 batch_data_test.grad.zero_()
             # squeeze dim 1 because image is of shape [1, 28, 28] where 1 is the number of channels, so batch_adv_examples is of shape [batch_size, 1, 28, 28]
-            mean_adv_examples_grads += test_set_adv_grads.squeeze(dim=1) / len(posterior_samples)
+            adv_examples_grads_sum += test_set_adv_grads.squeeze(dim=1)
 
-        adv_inputs = copy.deepcopy(test_set.data.to(TORCH_DEVICE) + self.hps.eps * torch.sign(mean_adv_examples_grads))
+        adv_inputs = copy.deepcopy(test_set.data.to(TORCH_DEVICE) + self.hps.eps * torch.sign(adv_examples_grads_sum))
         adv_labels = copy.deepcopy(test_set.targets.to(TORCH_DEVICE))
         # NOTE: be careful here: apparently a dataset needs to be on the cpu so that the DataLoader can work with it
         # NOTE: otherwise CUDA just freaks out: run "CUDA_LAUNCH_BLOCKING=1 <your_program>.py' to see the error
@@ -162,19 +163,21 @@ class AdvHamiltonianMonteCarlo:
     def __p_update(self, data_loader: torch.utils.data.DataLoader, p: list, lf_step: float) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_data, batch_target = self.__get_batch(data_loader)
         closs = self.__get_nll_loss(self.hps.criterion, (batch_data, batch_target), adv=False)
-        self.__advance_momentum(p, self.hps.alpha * lf_step)
+        self.__advance_momentum(p, self.hps.alpha * lf_step, adv=False)
         closs_adv = self.__get_nll_loss(self.hps.criterion, (batch_data, batch_target), adv=True)
-        self.__advance_momentum(p, (1 - self.hps.alpha) * lf_step)
+        self.__advance_momentum(p, (1 - self.hps.alpha) * lf_step, adv=True)
 
         return closs, closs_adv
 
-    def __advance_momentum(self, p: list, eps: float) -> None:
+    def __advance_momentum(self, p: list, eps: float, adv=False) -> None:
         prior_loss = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
+        prior_grad = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
         for idx, param in enumerate(self.net.parameters()):
             ll_grad = param.grad
-            prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
-            prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
-            potential_energy_grad = ll_grad + prior_grad
+            if not adv:
+                prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
+                prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
+            potential_energy_grad = copy.deepcopy(ll_grad) + prior_grad
             if self.hps.run_dp:
                 # clip the gradient norm (first term) and add noise (second term)
                 potential_energy_grad /= max(1, torch.norm(potential_energy_grad) / self.hps.grad_norm_bound)
@@ -205,12 +208,14 @@ class AdvHamiltonianMonteCarlo:
     def __gen_fgsm_adv_examples(self, batch_input: torch.Tensor, batch_target: torch.Tensor) -> torch.Tensor:
         batch_input.requires_grad = True
         y_hat = self.net(batch_input)
-        loss = self.hps.criterion(y_hat, batch_target)
+        loss = self .hps.criterion(y_hat, batch_target)
         loss.backward()
         input_grads = copy.deepcopy(batch_input.grad.data)
         adv_examples = copy.deepcopy(batch_input)
         adv_examples = adv_examples + self.hps.eps * torch.sign(input_grads)
+        adv_examples = torch.clamp(adv_examples, 0, 1)
         batch_input.grad.zero_()
+        batch_input.requires_grad = False
         self.net.zero_grad()
 
         return adv_examples
@@ -257,11 +262,13 @@ train_data, test_data = load_mnist("../../")
 # -------------------------------------------------------------------------------------------------------
 ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING = 42
 torch.manual_seed(ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING)
-hyperparams_1 = HyperparamsHMC(num_epochs=15, num_burnin_epochs=7, step_size=0.01, lf_steps=75, criterion=torch.nn.CrossEntropyLoss(),
-                             batch_size=128, momentum_std=0.01, run_dp=True, grad_norm_bound=5, dp_sigma=0.1, alpha=1)
+hyperparams_1 = HyperparamsHMC(num_epochs=10, num_burnin_epochs=4, step_size=0.01, lf_steps=75, criterion=torch.nn.CrossEntropyLoss(),
+                             batch_size=128, momentum_std=0.01, run_dp=True, grad_norm_bound=5, dp_sigma=0.2, alpha=1)
 hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams_1)
 
 samples = hmc.train_mnist_vanilla(train_data)
+
+hmc.hps.eps = 0.05
 adv_test_set = hmc.gen_predictive_distrib_adv_examples(test_data, samples)
 acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
 
@@ -273,11 +280,13 @@ print(f'Accuracy of HMC-DP with average logit on adversarially generated test se
 # ------------------------------------------------------------------------------------------------------------------
 # ----------------- Now train adversarially robust model and test for both normal and adv test set -----------------
 # ------------------------------------------------------------------------------------------------------------------
-hyperparams_2 = HyperparamsHMC(num_epochs=15, num_burnin_epochs=7, step_size=0.01, lf_steps=75, criterion=torch.nn.CrossEntropyLoss(),
-                             batch_size=128, momentum_std=0.01, run_dp=True, grad_norm_bound=5, dp_sigma=0.1, alpha=0.5, eps=0.05)
+hyperparams_2 = HyperparamsHMC(num_epochs=10, num_burnin_epochs=4, step_size=0.01, lf_steps=75, criterion=torch.nn.CrossEntropyLoss(),
+                             batch_size=128, momentum_std=0.01, run_dp=True, grad_norm_bound=5, dp_sigma=0.2, alpha=0.5, eps=0.1)
 hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams_2)
 
 samples = hmc.train_mnist_vanilla(train_data)
+
+hmc.hps.eps = 0.05
 adv_test_set = hmc.gen_predictive_distrib_adv_examples(test_data, samples)
 acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
 
@@ -285,15 +294,22 @@ print(f'Accuracy of ADV-HMC-DP with average logit on standard test set: {acc_wit
 acc_with_average_logits = hmc.test_hmc_with_average_logits(adv_test_set, samples)
 print(f'Accuracy of ADV-HMC-DP with average logit on adversarially generated test set: {acc_with_average_logits} %')
 # ------------------------------------------------------------------------------------------------------------------
-# RESULTS FOR THIS EXPERIMENT (NON-ROBUST DP MODEL VS. ADVERSARIALLY ROBUST DP MODEL):
+# RESULTS FOR EXPERIMENT 1: 25 epochs, 8 burnin-epochs (NON-ROBUST NON-DP MODEL VS. ADVERSARIALLY ROBUST NON-DP MODEL):
 # 1. NORMALLY TRAINED MODEL:
-#    On normal test set => 82.78%
-#    On adversarially generated test set => 44.26%
+#    On normal test set => 85.46%
+#    On adversarially generated test set => 42.58%
 # 2. ADVERSARIALLY TRAINED MODEL:
-#    On normal test set => 78.46%
-#    On adversarially generated test set => 32.33%
+#    On normal test set => 82.9%
+#    On adversarially generated test set => 76.29%
+# ------------------------------------------------------------------------------------------------------------------
+# RESULTS FOR EXPERIMENT 2: 25 epochs, 8 burnin-epochs, grad_bound 5, dp sigma 0.2 (NON-ROBUST DP MODEL VS. ADVERSARIALLY ROBUST DP MODEL):
+# 1. NORMALLY TRAINED MODEL:
+#    On normal test set => 85.78%
+#    On adversarially generated test set => 48.91%
+# 2. ADVERSARIALLY TRAINED MODEL:
+#    On normal test set => 84.0%
+#    On adversarially generated test set => 76.79%
 
 # ------------------ SOME CONCLUSIONS (MAYBE) ------------------
-# ADV-HMC-DP model is more robust to adversarial attacks than the normally trained model
-# NOTE: HOWEVER, the adversarially trained model is less accurate on the normal test set than the normally trained model
-# THIS MIGHT MEAN THAT IT CONVERGES SLOWER
+# 1. The adversarially trained model is more robust to adversarial examples than the normally trained model.
+# 2. DP makes the model more robust to adversarial examples (i.e. seems not to be at odds?)
