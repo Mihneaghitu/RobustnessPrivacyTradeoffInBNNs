@@ -1,5 +1,5 @@
 import copy
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torch.distributions as dist
@@ -10,21 +10,40 @@ from globals import TORCH_DEVICE
 class VanillaBnnLinear(torch.nn.Module):
     def __init__(self):
         super(VanillaBnnLinear, self).__init__()
-        self.linear = torch.nn.Sequential(
-            torch.nn.Linear(784, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 10),
-            # torch.nn.Softmax(dim=1)
-        )
+        self.linear1 = torch.nn.Linear(784, 128)
+        self.linear2 = torch.nn.Linear(128, 64)
+        self.linear3 = torch.nn.Linear(64, 10)
+        # torch.nn.Softmax(dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
-        y = torch.nn.Flatten()(x)
-        y = self.linear(y)
+        x_start = torch.nn.Flatten()(x)
+        y = torch.nn.ReLU()(self.linear1(x_start))
+        y = torch.nn.ReLU()(self.linear2(y))
+        y = self.linear3(y)
 
         return y
+
+    def ibp_forward(self, x: torch.Tensor, eps: float) -> torch.Tensor:
+        activation = torch.nn.ReLU()
+        # flatten the representation
+        x_start = torch.nn.Flatten()(x)
+        z_inf, z_sup = x_start - eps, x_start + eps
+        z_inf = torch.clamp(z_inf, 0, 1)
+        z_sup = torch.clamp(z_sup, 0, 1)
+
+        # first layer
+        z_inf, z_sup = self.__get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
+        z_inf, z_sup = self.__get_bounds_monotonic(activation, z_inf, z_sup)
+
+        # second layer
+        z_inf, z_sup = self.__get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
+        z_inf, z_sup = self.__get_bounds_monotonic(activation, z_inf, z_sup)
+
+        # third layer -> logits
+        z_inf, z_sup = self.__get_bounds_affine(self.linear3.weight, self.linear3.bias, z_inf, z_sup)
+
+        return z_inf, z_sup
 
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param - learning_rate * grad
@@ -39,3 +58,35 @@ class VanillaBnnLinear(torch.nn.Module):
 
     def get_params(self) -> List[torch.Tensor]:
         return [copy.deepcopy(param) for param in self.parameters()]
+
+    # ------------------- Private methods -------------------
+    def __get_bounds_affine(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        miu = (z_inf + z_sup) / 2
+        std = (z_sup - z_inf) / 2
+        weights = weights.T
+        miu_new = miu @ weights + bias
+        std_new = std @ torch.abs(weights)
+
+        # new bounds after affine transformation
+        return miu_new - std_new, miu_new + std_new
+
+    def __get_bounds_monotonic(self, act: torch.nn.Module, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return act(z_inf), act(z_sup)
+
+class IbpAdversarialLoss(torch.nn.Module):
+    def __init__(self, net: VanillaBnnLinear, base_criterion: torch.nn.Module, eps: float):
+        super(IbpAdversarialLoss, self).__init__()
+        self.net = net
+        self.eps = eps
+        self.base_criterion = base_criterion
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        z_inf, z_sup = self.net.ibp_forward(x, self.eps)
+
+        lower_bound_mask = torch.eye(10).to(TORCH_DEVICE)[y]
+        upper_bound_mask = 1 - lower_bound_mask
+        worst_case_logits = z_inf * lower_bound_mask + z_sup * upper_bound_mask
+
+        l_robust = self.base_criterion(worst_case_logits, y)
+
+        return l_robust

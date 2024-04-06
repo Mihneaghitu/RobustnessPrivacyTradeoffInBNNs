@@ -1,24 +1,33 @@
-from typing import Tuple
-
 import torch
-import torchvision
-from torchvision import transforms
 
 from dataset_utils import load_mnist
-from deterministic.pipeline import test_mnist_vanilla, train_mnist_vanilla
+from globals import TORCH_DEVICE
+from probabilistic.attack_types import AttackType
+from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
+from probabilistic.HMC.attacks import fgsm_predictive_distrib_attack
+from probabilistic.HMC.hyperparams import HyperparamsHMC
+from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 
 
 def main():
-    is_cuda_available = torch.cuda.is_available()
-    device = torch.device('cuda:0' if is_cuda_available else 'cpu')
-    print(device)
 
-    train_data, test_data = load_mnist()
-    vanilla_network = train_mnist_vanilla(train_data, device)
-    torch.save(vanilla_network.state_dict(), 'vanilla_network.pt')
-    accuracy = test_mnist_vanilla(vanilla_network, test_data, device)
-    print(f'Accuracy: {accuracy}')
+    print(f"Using device: {TORCH_DEVICE}")
+    VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+    train_data, test_data = load_mnist("./")
+    hyperparams_1 = HyperparamsHMC(num_epochs=100, num_burnin_epochs=15, step_size=0.01, lf_steps=600, criterion=torch.nn.CrossEntropyLoss(),
+                                 batch_size=100, momentum_std=0.01, run_dp=False, grad_norm_bound=5, dp_sigma=0.1, alpha=0.5, eps=0.1)
+    # 59.3% with IBP
+    hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams_1, AttackType.FGSM)
 
+    samples = hmc.train_mnist_vanilla(train_data)
+
+    hmc.hps.eps = 0.09
+    adv_test_set = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, samples)
+    acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
+
+    print(f'Accuracy of ADV-HMC-DP with average logit on standard test set: {acc_with_average_logits} %')
+    acc_with_average_logits = hmc.test_hmc_with_average_logits(adv_test_set, samples)
+    print(f'Accuracy of ADV-HMC-DP with average logit on adversarially generated test set: {acc_with_average_logits} %')
     return 0
 
 if __name__ == '__main__':

@@ -10,8 +10,7 @@ def load_mnist(rel_path: str = ".") -> Tuple[torchvision.datasets.MNIST, torchvi
     os.chdir(curr_dir + "/" + rel_path)
     print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, ), (0.5, ))
+        transforms.ToTensor()
     ])
     train_data = torchvision.datasets.MNIST(root="./data", train=True, download=True, transform=transform)
     test_data = torchvision.datasets.MNIST(root="./data", train=False, download=True, transform=transform)
