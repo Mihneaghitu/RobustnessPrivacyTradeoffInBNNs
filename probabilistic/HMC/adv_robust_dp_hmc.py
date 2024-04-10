@@ -80,12 +80,12 @@ class AdvHamiltonianMonteCarlo:
                     if itr == 22000:
                         self.hps.step_size /= 5
                     #* increase slowly (for IBP), as mentioned by Gowal et al. 2018 (IBP paper)
-                    if itr <= 3000:
+                    if itr <= 9000:
                         self.hps.eps = 0.0
                         self.hps.alpha = 1.0
-                    elif 12000 < itr < 22000:
-                        self.hps.eps += copy_eps / 10000
-                        self.hps.alpha -= (1 - copy_alpha) / 10000
+                    elif 9000 < itr < 20000:
+                        self.hps.eps += copy_eps / 11000
+                        self.hps.alpha -= (1 - copy_alpha) / 11000
                     else:
                         self.hps.eps = copy_eps
                         self.hps.alpha = copy_alpha

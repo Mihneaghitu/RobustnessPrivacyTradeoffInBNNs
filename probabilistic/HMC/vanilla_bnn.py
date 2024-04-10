@@ -45,6 +45,15 @@ class VanillaBnnLinear(torch.nn.Module):
 
         return z_inf, z_sup
 
+    def get_worst_case_logits(self, x: torch.Tensor, y: torch.Tensor, eps: float) -> torch.Tensor:
+        z_inf, z_sup = self.ibp_forward(x, eps)
+
+        lower_bound_mask = torch.eye(10).to(TORCH_DEVICE)[y]
+        upper_bound_mask = 1 - lower_bound_mask
+        worst_case_logits = z_inf * lower_bound_mask + z_sup * upper_bound_mask
+
+        return worst_case_logits
+
     def update_param(self, param: torch.Tensor, grad: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param - learning_rate * grad
 
@@ -58,6 +67,12 @@ class VanillaBnnLinear(torch.nn.Module):
 
     def get_params(self) -> List[torch.Tensor]:
         return [copy.deepcopy(param) for param in self.parameters()]
+
+    def get_input_size(self) -> int:
+        return self.linear1.in_features
+
+    def get_output_size(self) -> int:
+        return self.linear3.out_features
 
     # ------------------- Private methods -------------------
     def __get_bounds_affine(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -83,6 +98,7 @@ class IbpAdversarialLoss(torch.nn.Module):
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         z_inf, z_sup = self.net.ibp_forward(x, self.eps)
 
+        #! inference: if z_inf > z_sup of all the rest provably robust
         lower_bound_mask = torch.eye(10).to(TORCH_DEVICE)[y]
         upper_bound_mask = 1 - lower_bound_mask
         worst_case_logits = z_inf * lower_bound_mask + z_sup * upper_bound_mask
