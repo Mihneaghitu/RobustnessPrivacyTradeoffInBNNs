@@ -1,22 +1,22 @@
 import sys
 import time
 from math import ceil
-from typing import Dict, Tuple, Union
+from typing import Callable, Dict, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 
-sys.path.append('../../')
+sys.path.append('../')
 
 from torch.utils.data import DataLoader, Dataset
 
+from deterministic.vanilla_net import VanillaNetLinear
 from globals import TORCH_DEVICE
 from probabilistic.HMC.datasets import GenericDataset
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 
 
 class MembershipInferenceAttack:
-    def __init__(self, target_net: VanillaBnnLinear, num_classes: int, distrib_moments: Tuple[torch.Tensor, torch.Tensor]) -> None:
+    def __init__(self, target_net: VanillaNetLinear, num_classes: int, distrib_moments: Tuple[torch.Tensor, torch.Tensor]) -> None:
         self.target_net = target_net
         self.target_net.eval()
         self.num_classes = num_classes
@@ -24,7 +24,8 @@ class MembershipInferenceAttack:
         for class_index in range(num_classes):
             self.shadow_models[class_index] = ShadowModel(num_classes, class_index, target_net.get_input_size()).to(TORCH_DEVICE)
             self.attack_models[class_index] = AttackModel(num_classes, class_index).to(TORCH_DEVICE)
-        self.record_synthesizer = RecordSynthesizer(target_net, num_classes, distrib_moments=distrib_moments)
+        self.fwd_func = self.target_net.forward
+        self.record_synthesizer = RecordSynthesizer(target_net, num_classes, distrib_moments, self.fwd_func)
 
     def train_shadow_models(self, batch_size: int, num_epochs: int, lr: float) -> Dict[int, Dataset]:
         input_per_attack_model = {}
@@ -93,7 +94,7 @@ class MembershipInferenceAttack:
                     loss.backward()
                     optimizer.step()
 
-    def test_attack_models(self, test_dset: Dataset) -> float:
+    def test_attack_models_dnn(self, test_dset: Dataset) -> float:
         #* batch size of 1 for simplicity
         attack_test_loader = DataLoader(test_dset, batch_size=1, shuffle=True)
         for attack_model in self.attack_models.values():
@@ -102,7 +103,7 @@ class MembershipInferenceAttack:
         correct, total = 0, 0
         for data, target in attack_test_loader:
             x_test, y_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
-            y_hat = self.target_net(x_test)
+            y_hat = self.fwd_func(x_test)
             predicted_label = torch.argmax(y_hat).tolist() # since predicted_label is a scalar tensor, tolist() gives a scalar
             attack_model_prediction = self.attack_models[predicted_label](y_hat)
             #* we can do this since the batch size is 1
@@ -159,22 +160,24 @@ class ShadowModel(torch.nn.Module):
         return self.class_label
 
 class RecordSynthesizer:
-    def __init__(self, net: VanillaBnnLinear, num_classes: int, distrib_moments: Tuple[torch.Tensor, torch.Tensor], pos_training_samples: int = 7000) -> None:
+    def __init__(self, net: VanillaNetLinear, num_classes: int, distrib_moments: Tuple[torch.Tensor, torch.Tensor],
+                 fwd_func: Callable[[torch.Tensor], torch.Tensor], pos_training_samples: int = 7000) -> None:
         self.target_net = net
         self.marginal_means, self.marginal_stds = distrib_moments
         # Initialize all the shadow models
         self.num_classes = num_classes
         self.shadow_models_train_dsets = {}
         self.num_training_samples = pos_training_samples # per class
+        #^ This is an argument to reduce the duplication when doing the synthetization on BNNs
+        self.forward_func = fwd_func
 
     def generate_training_data_for_class(self, class_index) -> Tuple[Dataset, Dataset]:
         #^ See https://arxiv.org/pdf/1610.05820.pdf section V, part D
         # Generate the positive records for each class
         #* For each shadow model, we have the positive samples (named D_train_shadow_i in the paper), where i index of shadow model
         train_samples = self.__generate_class_synthetic_dataset(class_index)
-        #* For the negative samples, we need a disjoint set of samples, named in the paper (rather confusingly) D_test_shadow_i (TEST, really?)
-        #? Ok apparently they are actually not used for training, but this seems really odd. Don't we also need negative samples to differentiate?
-        #? Or does the model learn to differentiate at the atack model level?
+        #* For the negative samples, we need a disjoint set of samples, named in the paper D_test_shadow_i
+        #* The latter are not in the training set and will hence will be labeled as "out" (== 0)
         test_samples = self.__generate_disjoint(train_samples)
         # Combine the positive and negative samples
         targets = torch.eye(self.num_classes)[class_index].repeat(self.num_training_samples, 1).to(TORCH_DEVICE)
@@ -188,7 +191,7 @@ class RecordSynthesizer:
         generated_records = []
         start = time.time()
         while len(generated_records) < self.num_training_samples:
-            record = self.__synthesize_record(self.target_net, class_index)
+            record = self.__synthesize_record(class_index)
             if not isinstance(record, bool):
                 generated_records.append(record.tolist())
         end = time.time()
@@ -210,15 +213,14 @@ class RecordSynthesizer:
 
 
     # ------------------------ Synthesize the data ------------------------
-    def __synthesize_record(self, net: VanillaBnnLinear, data_category: str, max_rand_features: int = 128, min_rand_features: int = 4,
+    def __synthesize_record(self, data_category: str, max_rand_features: int = 128, min_rand_features: int = 4,
                             max_it: int = 200, min_confidence: int = 0.2, max_rejections: int = 10) -> Union[torch.Tensor, bool]:
         #^ see https://arxiv.org/pdf/1610.05820.pdf section V, part C
         # data category is the class index
         # Since we have statistical moments, we can generate the data from a normal distribution with the same mean and std
         x = torch.normal(self.marginal_means.unsqueeze(0), self.marginal_stds.unsqueeze(0)).to(TORCH_DEVICE)
         # Small hack, threshold at 0.5, in practice it apparently does minimal change to the marginal distribution
-        #! This only holds for mnist, so:
-        # TODO: make it general
+        # TODO: This only holds for MNIST so make it general
         x = torch.where(x < 0.5, torch.zeros_like(x), torch.ones_like(x))
         y_category_threshold, j, k, curr_x = 0, 0, max_rand_features, x.detach().clone()
 
@@ -229,7 +231,7 @@ class RecordSynthesizer:
 
         for _ in range(max_it):
             # [0] because we have a batch size of 1
-            y_hat = F.softmax(net(x)[0], dim=0)
+            y_hat = F.softmax(self.forward_func(x)[0], dim=0)
             if y_category_threshold < y_hat[data_category]:
                 if is_better(y_hat) and is_prediction_correct(y_hat) and is_randomly_selected(y_hat):
                     return x.squeeze(0)
@@ -242,7 +244,7 @@ class RecordSynthesizer:
                     k = max(min_rand_features, ceil(k / 2))
                     j = 0
             # randomize k features from curr_x
-            shuffled_indices = torch.randperm(net.get_input_size())[:k]
+            shuffled_indices = torch.randperm(self.target_net.get_input_size())[:k]
             x = curr_x.detach().clone()
             x[0, shuffled_indices] = torch.rand(k, device=TORCH_DEVICE, dtype=torch.float32)
 

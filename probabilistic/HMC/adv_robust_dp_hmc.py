@@ -287,14 +287,6 @@ class AdvHamiltonianMonteCarlo:
 
         return batch_data, batch_target
 
-# ----------------- CONFIG -----------------
-print(f"Using device: {TORCH_DEVICE}")
-VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
-train_data, test_data = load_mnist("../../")
-ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING = 42
-torch.manual_seed(ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING)
-# -----------------------------------------
-
 #@ RESULTS FOR EXPERIMENT 1: eps train 0.1, eps test 0.05 (NON-ROBUST NON-DP MODEL VS. ADVERSARIALLY ROBUST NON-DP MODEL):
 #! 1. NORMALLY TRAINED MODEL (20 epochs, 8 burnin-epochs) :
 #*    On normal test set => 74.47%

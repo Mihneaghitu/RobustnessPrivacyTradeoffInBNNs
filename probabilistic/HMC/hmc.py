@@ -6,12 +6,11 @@ import torch
 import torch.distributions as dist
 import torch.nn.functional as F
 import torchvision
-import wandb
+# import wandb
 from torch.utils.data import DataLoader
 
 sys.path.append('../../')
 
-from dataset_utils import load_mnist
 from globals import TORCH_DEVICE
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
@@ -64,11 +63,11 @@ class HamiltonianMonteCarlo:
 
                 losses.append(closs.item())
                 running_loss_ce += closs.item()
-                # if i % print_freq == print_freq - 1:
-                #     print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
-                #     running_loss_ce = 0.0
-            wandb.log({'cross_entropy_loss': losses[-1]})
-            wandb.log({'epoch': epoch + 1})
+                if i % print_freq == print_freq - 1:
+                    print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
+                    running_loss_ce = 0.0
+            # wandb.log({'cross_entropy_loss': losses[-1]})
+            # wandb.log({'epoch': epoch + 1})
 
             # ------- final half step for momentum -------
             closs = self.__get_nll_loss(self.hps.criterion, data_loader)
@@ -81,8 +80,8 @@ class HamiltonianMonteCarlo:
             initial_energy = self.__get_energy(current_q, current_p, self.hps.criterion, data_loader)
             end_energy = self.__get_energy(q, p, self.hps.criterion, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
-            # print(f'Acceptance probability: {acceptance_prob}')
-            wandb.log({'acceptance_probability': acceptance_prob})
+            print(f'Acceptance probability: {acceptance_prob}')
+            # wandb.log({'acceptance_probability': acceptance_prob})
 
             if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
@@ -142,7 +141,8 @@ class HamiltonianMonteCarlo:
             if index_of_max_logit == test_set.targets[i]:
                 correct += 1
 
-        wandb.log({'accuracy_with_average_logits': 100 * correct / total})
+        print(f"Accuracy with average logits: {100 * correct / total} %")
+        # wandb.log({'accuracy_with_average_logits': 100 * correct / total})
 
         return 100 * correct / total
 

@@ -45,6 +45,19 @@ class VanillaBnnLinear(torch.nn.Module):
 
         return z_inf, z_sup
 
+    def hmc_forward(self, x: torch.Tensor, posterior_samples: List[torch.Tensor]) -> torch.Tensor:
+        # We need to do a forward pass for each sample in the posterior
+        # First dim is the batch size
+        y_hat = torch.zeros(x.size(0), self.get_output_size()).to(TORCH_DEVICE)
+        for sample in posterior_samples:
+            self.set_params(sample)
+            self.eval()
+            y_hat += self.forward(x)
+
+        y_hat = torch.div(y_hat, torch.tensor(len(posterior_samples)))
+
+        return y_hat
+
     def get_worst_case_logits(self, x: torch.Tensor, y: torch.Tensor, eps: float) -> torch.Tensor:
         z_inf, z_sup = self.ibp_forward(x, eps)
 
