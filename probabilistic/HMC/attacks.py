@@ -22,7 +22,6 @@ def fgsm_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, t
 
     for sample in posterior_samples:
         net.set_params(sample)
-        net.eval()
 
         test_set_adv_grads = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
         for batch_data, batch_target in data_loader:
@@ -51,18 +50,17 @@ def pgd_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, te
                                   bound: float = 0.3, iterations: int = 10) -> Dataset:
     # x_adv_theta = PI_S[x + eps * sign(E_theta[grad_x log p(y | x, theta)])]
     curr_dset = GenericDataset(copy.deepcopy(test_set.data.to(TORCH_DEVICE)), copy.deepcopy(test_set.targets.to(TORCH_DEVICE)))
+    batch_size = 1000
     for _ in range(iterations):
         adv_examples_grads_mean = torch.zeros_like(test_set.data, dtype=torch.float32, device=TORCH_DEVICE)
-        batch_size = 1000
         data_loader = DataLoader(curr_dset, batch_size=batch_size, shuffle=False)
 
         for sample in posterior_samples:
             net.set_params(sample)
-            net.eval()
 
             test_set_adv_grads = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
             for batch_data, batch_target in data_loader:
-                batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE), batch_target.to(TORCH_DEVICE)
+                batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE, dtype=torch.float32), batch_target.to(TORCH_DEVICE)
                 batch_data_test.requires_grad = True
                 y_hat_test = net(batch_data_test)
                 loss = hps.criterion(y_hat_test, batch_target_test)
