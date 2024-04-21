@@ -8,14 +8,12 @@ import torch.distributions as dist
 import torch.nn.functional as F
 import torchvision
 import wandb
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 sys.path.append('../../')
 
-from dataset_utils import load_mnist
-from globals import TORCH_DEVICE
+from globals import LOGGER_TYPE, TORCH_DEVICE, LoggerType
 from probabilistic.attack_types import AttackType
-from probabilistic.HMC.attacks import fgsm_predictive_distrib_attack
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import IbpAdversarialLoss, VanillaBnnLinear
 
@@ -27,29 +25,21 @@ class AdvHamiltonianMonteCarlo:
         self.attack_type = attack_type
         self.adv_generator = None
         self.adv_criterion = None
-        self.eps_schedule = None
+        self.desired_eps, self.desired_alpha = self.hps.eps, self.hps.alpha
+        self.hps.eps, self.hps.alpha = 0, 1
         match attack_type:
             case AttackType.FGSM:
                 self.adv_generator = self.__gen_fgsm_adv_examples
                 self.adv_criterion = torch.nn.CrossEntropyLoss()
-                self.eps_schedule = lambda _: self.hps.eps
             case AttackType.PGD:
                 self.adv_generator = self.__gen_pgd_adv_examples
                 self.adv_criterion = torch.nn.CrossEntropyLoss()
-                self.eps_schedule = lambda _: self.hps.eps
             case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_adv_examples
                 self.adv_criterion = IbpAdversarialLoss(net, torch.nn.CrossEntropyLoss(), self.hps.eps)
-                # increases fast at the beginning, then slowly, saturating at eps
-                # self.eps_schedule = lambda epoch: (1 - np.exp(- epoch / 10)) * self.hps.eps
-                # linear schedule between start and end, based on epoch
-                self.eps_schedule = lambda start, end, epoch, eps: eps * (epoch - start) / (end - start)
-                self.alpha_schedule = lambda start, end, epoch, alpha: alpha * (end - epoch) / (end - start)
-
 
     def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
-        # Just don't ask
-        print_freq = self.hps.lf_steps - 1 # 500 // (self.hps.batch_size / 64)
+        print_freq = self.hps.lf_steps - 1
 
         data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
         posterior_samples = []
@@ -63,8 +53,7 @@ class AdvHamiltonianMonteCarlo:
             current_q.append(copy.deepcopy(param[1].data))
 
         running_loss_ce, running_loss_ce_adv = 0.0, 0.0
-        copy_eps, copy_alpha = self.hps.eps, self.hps.alpha
-        itr = 0
+        warmup_steps, itr = self.hps.num_burnin_epochs * self.hps.lf_steps, 0
         for epoch in range(self.hps.num_epochs):
             losses, p = [], []
             for param in self.net.parameters():
@@ -76,19 +65,7 @@ class AdvHamiltonianMonteCarlo:
             running_loss_ce += closs.item()
             running_loss_ce_adv += closs_adv.item()
             for i in range(self.hps.lf_steps):
-                if self.attack_type == AttackType.IBP:
-                    if itr == 22000:
-                        self.hps.step_size /= 5
-                    #* increase slowly (for IBP), as mentioned by Gowal et al. 2018 (IBP paper)
-                    if itr <= 9000:
-                        self.hps.eps = 0.0
-                        self.hps.alpha = 1.0
-                    elif 9000 < itr < 20000:
-                        self.hps.eps += copy_eps / 11000
-                        self.hps.alpha -= (1 - copy_alpha) / 11000
-                    else:
-                        self.hps.eps = copy_eps
-                        self.hps.alpha = copy_alpha
+                self.hps.eps, self.hps.alpha = self.__run_schedule(self.hps.eps, self.hps.alpha, itr, warmup_steps)
                 # ------------------- UPDATE q_new = q + lf_ss * p -------------------
                 self.__q_update(p, self.hps.step_size)
 
@@ -106,8 +83,10 @@ class AdvHamiltonianMonteCarlo:
                     print(f'[epoch {epoch + 1}, leapfrog step {i + 1}] ce_adversarial loss: {running_loss_ce_adv / (self.hps.batch_size * print_freq)}')
                     running_loss_ce, running_loss_ce_adv = 0.0, 0.0
                 itr +=1
-            # wandb.log({'cross_entropy_loss': losses[-1]})
-            # wandb.log({'epoch': epoch + 1})
+
+            if LOGGER_TYPE == LoggerType.WANDB:
+                wandb.log({'cross_entropy_loss': losses[-1]})
+                wandb.log({'epoch': epoch + 1})
 
             # -------------- Final half step for momentum --------------
             closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
@@ -120,7 +99,8 @@ class AdvHamiltonianMonteCarlo:
             end_energy = self.__get_energy(q, p, self.hps.criterion, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             print(f'Acceptance probability: {acceptance_prob}')
-            # wandb.log({'acceptance_probability': acceptance_prob})
+            if LOGGER_TYPE == LoggerType.WANDB:
+                wandb.log({'acceptance_probability': acceptance_prob})
 
             if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
@@ -159,7 +139,8 @@ class AdvHamiltonianMonteCarlo:
                 correct += 1
 
         print(f"Average value of max logit: {avg_val_of_max_logit / total}")
-        # wandb.log({'accuracy_with_average_logits': 100 * correct / total})
+        if LOGGER_TYPE == LoggerType.WANDB:
+            wandb.log({'accuracy_with_average_logits': 100 * correct / total})
 
         return 100 * correct / total
 
@@ -249,7 +230,7 @@ class AdvHamiltonianMonteCarlo:
 
         return clamped_adv_examples
 
-    def __gen_ibp_adv_examples(self, batch_input: torch.Tensor, batch_target: torch.Tensor) -> torch.Tensor:
+    def __gen_ibp_adv_examples(self, batch_input: torch.Tensor, _: torch.Tensor) -> torch.Tensor:
         #* This looks like a dummy function, and it is. Nevertheless, it's necessary for the sake of consistency
         return batch_input
 
@@ -287,36 +268,15 @@ class AdvHamiltonianMonteCarlo:
 
         return batch_data, batch_target
 
-#@ RESULTS FOR EXPERIMENT 1: eps train 0.1, eps test 0.05 (NON-ROBUST NON-DP MODEL VS. ADVERSARIALLY ROBUST NON-DP MODEL):
-#! 1. NORMALLY TRAINED MODEL (20 epochs, 8 burnin-epochs) :
-#*    On normal test set => 74.47%
-#*    On adversarially generated test set => 44.23%
-#! 2. NORMALLY TRAINED MODEL (45 epochs, 8 burnin-epochs) :
-#*    On normal test set => 84.17%
-#*    On adversarially generated test set => 54.26%
-#! 3. ADVERSARIALLY TRAINED MODEL (20 epochs, 8 burnin-epochs):
-#*    On normal test set => 64.64%
-#*    On adversarially generated test set => 41.68%
-#! 4. ADVERSARIALLY TRAINED MODEL (45 epochs, 8 burnin-epochs):
-#*    On normal test set => 75.35%
-#*    On adversarially generated test set => 58.06%
-# -> learns pretty slow adversarially
-# ------------------------------------------------------------------------------------------------------------------
-#@ RESULTS FOR EXPERIMENT 2: eps train 0.1, eps test 0.05  (NON-ROBUST DP MODEL VS. ADVERSARIALLY ROBUST DP MODEL):
-#! 1. NORMALLY TRAINED MODEL (25 epochs, 8 burnin-epochs, grad_bound 5, dp sigma 0.1):
-#*    On normal test set => 79.27%
-#*    On adversarially generated test set => 49.07%
-#! 2. NORMALLY TRAINED MODEL (50 epochs, 10 burnin-epochs):
-#*    On normal test set => 85.4%
-#*    On adversarially generated test set => 56.48%
-#! 3. ADVERSARIALLY TRAINED MODEL (25 epochs, 8 burnin-epochs, grad_bound 5, dp sigma 0.1):
-#*    On normal test set => 63.98%
-#*    On adversarially generated test set => 42.84%
-#! 4. ADVERSARIALLY TRAINED MODEL (50 epochs, 10 burnin-epochs):
-#*    On normal test set => 75.46%
-#*    On adversarially generated test set => 57.03%
+    def __run_schedule(self, eps: float, alpha: float, itr: int, warmup_steps: int) -> Tuple[float, float]:
+        if self.attack_type in [AttackType.FGSM, AttackType.PGD]:
+            return self.desired_eps, self.desired_alpha
 
-#? ------------------ SOME CONCLUSIONS (MAYBE) ------------------
-#? 1. The adversarially trained model is more robust to adversarial examples than the normally trained model.
-#? 2. DP naturally makes the model more robust to adversarial examples (perhaps due to random perturbation)
-#? 3. !!! DP also helps adversarially trained models to be more robust to adversarial examples (for the same reasons?)
+        delta_eps, delta_alpha = self.desired_eps, 1 - self.desired_alpha
+        increment_eps, increment_alpha = delta_eps / warmup_steps, delta_alpha / warmup_steps
+
+        if itr <= warmup_steps:
+            eps += increment_eps
+            alpha -= increment_alpha
+
+        return eps, alpha

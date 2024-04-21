@@ -6,12 +6,12 @@ import torch
 import torch.distributions as dist
 import torch.nn.functional as F
 import torchvision
-# import wandb
+import wandb
 from torch.utils.data import DataLoader
 
 sys.path.append('../../')
 
-from globals import TORCH_DEVICE
+from globals import LOGGER_TYPE, TORCH_DEVICE, LoggerType
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 
@@ -23,8 +23,7 @@ class HamiltonianMonteCarlo:
 
 
     def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
-        # Just don't ask
-        print_freq = self.hps.lf_steps - 1 # 500 // (self.hps.batch_size / 64)
+        print_freq = self.hps.lf_steps - 1
 
         data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
         posterior_samples = []
@@ -66,8 +65,9 @@ class HamiltonianMonteCarlo:
                 if i % print_freq == print_freq - 1:
                     print(f'[epoch {epoch + 1}, batch {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
                     running_loss_ce = 0.0
-            # wandb.log({'cross_entropy_loss': losses[-1]})
-            # wandb.log({'epoch': epoch + 1})
+            if LOGGER_TYPE == LoggerType.WANDB:
+                wandb.log({'cross_entropy_loss': losses[-1]})
+                wandb.log({'epoch': epoch + 1})
 
             # ------- final half step for momentum -------
             closs = self.__get_nll_loss(self.hps.criterion, data_loader)
@@ -81,7 +81,8 @@ class HamiltonianMonteCarlo:
             end_energy = self.__get_energy(q, p, self.hps.criterion, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             print(f'Acceptance probability: {acceptance_prob}')
-            # wandb.log({'acceptance_probability': acceptance_prob})
+            if LOGGER_TYPE == LoggerType.WANDB:
+                wandb.log({'acceptance_probability': acceptance_prob})
 
             if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
@@ -142,7 +143,8 @@ class HamiltonianMonteCarlo:
                 correct += 1
 
         print(f"Accuracy with average logits: {100 * correct / total} %")
-        # wandb.log({'accuracy_with_average_logits': 100 * correct / total})
+        if LOGGER_TYPE == LoggerType.WANDB:
+            wandb.log({'accuracy_with_average_logits': 100 * correct / total})
 
         return 100 * correct / total
 

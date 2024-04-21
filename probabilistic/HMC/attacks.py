@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader, Dataset
 
 sys.path.append('../../')
 
-from globals import TORCH_DEVICE
+import wandb
+
+from globals import LOGGER_TYPE, TORCH_DEVICE
 from probabilistic.HMC.datasets import GenericDataset
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
@@ -41,9 +43,8 @@ def fgsm_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, t
     adv_inputs = torch.clamp(adv_inputs, 0, 1)
 
     adv_labels = copy.deepcopy(test_set.targets.to(TORCH_DEVICE))
-    # NOTE: be careful here: apparently a dataset needs to be on the cpu so that the DataLoader can work with it
-    # NOTE: otherwise CUDA just freaks out: run "CUDA_LAUNCH_BLOCKING=1 <your_program>.py' to see the error
     adv_dataset = GenericDataset(adv_inputs, adv_labels)
+
     return adv_dataset
 
 def pgd_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, posterior_samples: List[torch.Tensor],
@@ -89,11 +90,12 @@ def ibp_eval(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, post
         net.eval()
 
         sample_logits = torch.tensor([]).to(TORCH_DEVICE)
-        for data, _ in data_loader:
-            batch_data_test  = data.to(TORCH_DEVICE)
-            y_hat = net(batch_data_test)
+        for data, target in data_loader:
+            batch_data_test, y_true_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
             # use y_hat because conceptually, at inference time, the true labels are unknown
-            batch_worst_case_logits = net.get_worst_case_logits(batch_data_test, torch.argmax(y_hat, dim=1), hps.eps)
+            #! NO
+            # y_hat = net(batch_data_test)
+            batch_worst_case_logits = net.get_worst_case_logits(batch_data_test, y_true_test, hps.eps)
             batch_normalized_worst_case_logits = F.softmax(batch_worst_case_logits, dim=1)
 
             sample_logits = torch.cat((sample_logits, batch_normalized_worst_case_logits), dim=0)
@@ -112,5 +114,8 @@ def ibp_eval(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, post
             correct += 1
 
     print(f"Average value of max logit: {avg_val_of_max_logit / total}")
+    ibp_robust_acc = 100 * correct / total
+    if LOGGER_TYPE == 'wandb':
+        wandb.log({'ibp_robust_acc': ibp_robust_acc})
 
-    return 100 * correct / total
+    return ibp_robust_acc
