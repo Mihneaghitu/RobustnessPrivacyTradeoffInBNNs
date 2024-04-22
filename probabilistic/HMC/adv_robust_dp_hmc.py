@@ -85,8 +85,9 @@ class AdvHamiltonianMonteCarlo:
                 itr +=1
 
             if LOGGER_TYPE == LoggerType.WANDB:
-                wandb.log({'cross_entropy_loss': losses[-1]})
+                wandb.log({'cross_entropy_loss': losses[-1][0]})
                 wandb.log({'epoch': epoch + 1})
+                wandb.log({'cross_entropy_adversarial_loss': losses[-1][1]})
 
             # -------------- Final half step for momentum --------------
             closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)

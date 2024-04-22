@@ -83,7 +83,15 @@ def grid_search_adv_no_dp(attack_type: str):
             eps=grid_config.eps
         )
 
-        attack = {"fgsm": AttackType.FGSM, "pgd": AttackType.PGD, "ibp": AttackType.IBP}.get(attack_type, AttackType.FGSM)
+        attack = None
+        match attack_type:
+            case "fgsm":
+                attack = AttackType.FGSM
+            case "ibp":
+                attack = AttackType.IBP
+            case _:
+                attack = AttackType.PGD
+        print(f"Attack type is {attack}")
         hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams, attack)
         posterior_samples = hmc.train_mnist_vanilla(train_data)
 
@@ -102,7 +110,12 @@ def grid_search_adv_no_dp(attack_type: str):
         wandb.log({'acc_ibp': acc_ibp})
         wandb.log({'acc_pgd': acc_pgd})
 
-        composite_std_robust_metric = acc_std / 3 + acc_ibp
+        composite_std_robust_metric = 0
+        if attack == AttackType.FGSM:
+            composite_std_robust_metric += (acc_std / 3 + acc_fgsm)
+        if attack == AttackType.IBP:
+            composite_std_robust_metric += acc_ibp
+
         wandb.log({'composite_std_robust_metric': composite_std_robust_metric})
 
         print(f'Accuracy with average logits: {acc_std} %')
@@ -117,5 +130,5 @@ def run_adv_no_dp_sweep(attack_type: str):
     setup()
     sweep_config = adv_no_dp_config()
 
-    adv_no_dp_sweep = wandb.sweep(sweep=sweep_config, project="adv_robust_hmc")
+    adv_no_dp_sweep = wandb.sweep(sweep=sweep_config, project="adv_robust_hmc_ibp")
     wandb.agent(sweep_id=adv_no_dp_sweep, function=partial(grid_search_adv_no_dp, attack_type), count=150)
