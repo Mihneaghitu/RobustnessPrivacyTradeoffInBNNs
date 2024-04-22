@@ -1,10 +1,10 @@
 import sys
+from functools import partial
 
 import torch
 import wandb
 
 sys.path.append('../../')
-from functools import partial
 
 import globals as glb
 from dataset_utils import load_mnist
@@ -14,10 +14,10 @@ from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import (fgsm_predictive_distrib_attack,
                                        ibp_eval, pgd_predictive_distrib_attack)
 from probabilistic.HMC.hyperparams import HyperparamsHMC
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
+from probabilistic.HMC.vanilla_bnn import VanillaBnnMnist
 
 print(f"Using device: {TORCH_DEVICE}")
-VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+VANILLA_BNN = VanillaBnnMnist().to(TORCH_DEVICE)
 glb.LOGGER_TYPE = LoggerType.WANDB
 train_data, test_data = load_mnist("../../")
 
@@ -83,14 +83,7 @@ def grid_search_adv_no_dp(attack_type: str):
             eps=grid_config.eps
         )
 
-        attack = None
-        match attack_type:
-            case "fgsm":
-                attack = AttackType.FGSM
-            case "ibp":
-                attack = AttackType.IBP
-            case _:
-                attack = AttackType.PGD
+        attack = {"fgsm": AttackType.FGSM, "pgd": AttackType.PGD, "ibp": AttackType.IBP}.get(attack_type, AttackType.FGSM)
         print(f"Attack type is {attack}")
         hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams, attack)
         posterior_samples = hmc.train_mnist_vanilla(train_data)

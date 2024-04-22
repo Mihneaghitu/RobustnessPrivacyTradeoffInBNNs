@@ -11,10 +11,10 @@ from dataset_utils import load_mnist
 from globals import TORCH_DEVICE, LoggerType
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
+from probabilistic.HMC.vanilla_bnn import VanillaBnnMnist
 
 print(f"Using device: {TORCH_DEVICE}")
-VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+VANILLA_BNN = VanillaBnnMnist().to(TORCH_DEVICE)
 glb.LOGGER_TYPE = LoggerType.WANDB
 max_predictive_acc, optimal_samples, best_cnt = 0, None, 0
 train_data, test_data = load_mnist("../")

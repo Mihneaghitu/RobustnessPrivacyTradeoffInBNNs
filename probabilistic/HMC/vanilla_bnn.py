@@ -1,49 +1,31 @@
 import copy
+from abc import ABC, abstractmethod
 from typing import List, Tuple
 
 import torch
-import torch.distributions as dist
 
 from globals import TORCH_DEVICE
 
 
-class VanillaBnnLinear(torch.nn.Module):
+class VanillaBnnLinear(torch.nn.Module, ABC):
     def __init__(self):
         super(VanillaBnnLinear, self).__init__()
-        self.linear1 = torch.nn.Linear(784, 128)
-        self.linear2 = torch.nn.Linear(128, 64)
-        self.linear3 = torch.nn.Linear(64, 10)
-        # torch.nn.Softmax(dim=1)
 
+    @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # flatten the representation
-        x_start = torch.nn.Flatten()(x)
-        y = torch.nn.ReLU()(self.linear1(x_start))
-        y = torch.nn.ReLU()(self.linear2(y))
-        y = self.linear3(y)
+        pass
 
-        return y
-
+    @abstractmethod
     def ibp_forward(self, x: torch.Tensor, eps: float) -> torch.Tensor:
-        activation = torch.nn.ReLU()
-        # flatten the representation
-        x_start = torch.nn.Flatten()(x)
-        z_inf, z_sup = x_start - eps, x_start + eps
-        z_inf = torch.clamp(z_inf, 0, 1)
-        z_sup = torch.clamp(z_sup, 0, 1)
+        pass
 
-        # first layer
-        z_inf, z_sup = self.__get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
-        z_inf, z_sup = self.__get_bounds_monotonic(activation, z_inf, z_sup)
+    @abstractmethod
+    def get_input_size(self) -> int:
+        pass
 
-        # second layer
-        z_inf, z_sup = self.__get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
-        z_inf, z_sup = self.__get_bounds_monotonic(activation, z_inf, z_sup)
-
-        # third layer -> logits
-        z_inf, z_sup = self.__get_bounds_affine(self.linear3.weight, self.linear3.bias, z_inf, z_sup)
-
-        return z_inf, z_sup
+    @abstractmethod
+    def get_output_size(self) -> int:
+        pass
 
     def hmc_forward(self, x: torch.Tensor, posterior_samples: List[torch.Tensor]) -> torch.Tensor:
         # We need to do a forward pass for each sample in the posterior
@@ -57,6 +39,7 @@ class VanillaBnnLinear(torch.nn.Module):
         y_hat = torch.div(y_hat, torch.tensor(len(posterior_samples)))
 
         return y_hat
+
 
     def get_worst_case_logits(self, x: torch.Tensor, y: torch.Tensor, eps: float) -> torch.Tensor:
         z_inf, z_sup = self.ibp_forward(x, eps)
@@ -81,14 +64,7 @@ class VanillaBnnLinear(torch.nn.Module):
     def get_params(self) -> List[torch.Tensor]:
         return [copy.deepcopy(param) for param in self.parameters()]
 
-    def get_input_size(self) -> int:
-        return self.linear1.in_features
-
-    def get_output_size(self) -> int:
-        return self.linear3.out_features
-
-    # ------------------- Private methods -------------------
-    def __get_bounds_affine(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_bounds_affine(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         miu = (z_inf + z_sup) / 2
         std = (z_sup - z_inf) / 2
         weights = weights.T
@@ -98,8 +74,88 @@ class VanillaBnnLinear(torch.nn.Module):
         # new bounds after affine transformation
         return miu_new - std_new, miu_new + std_new
 
-    def __get_bounds_monotonic(self, act: torch.nn.Module, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_bounds_monotonic(self, act: torch.nn.Module, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return act(z_inf), act(z_sup)
+
+class VanillaBnnMnist(VanillaBnnLinear):
+    def __init__(self):
+        super(VanillaBnnMnist, self).__init__()
+        self.linear1 = torch.nn.Linear(784, 128)
+        self.linear2 = torch.nn.Linear(128, 64)
+        self.linear3 = torch.nn.Linear(64, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # flatten the representation
+        x_start = torch.nn.Flatten()(x)
+        y = torch.nn.ReLU()(self.linear1(x_start))
+        y = torch.nn.ReLU()(self.linear2(y))
+        y = self.linear3(y)
+
+        return y
+
+    def ibp_forward(self, x: torch.Tensor, eps: float) -> torch.Tensor:
+        activation = torch.nn.ReLU()
+        # flatten the representation
+        x_start = torch.nn.Flatten()(x)
+        z_inf, z_sup = x_start - eps, x_start + eps
+        z_inf = torch.clamp(z_inf, 0, 1)
+        z_sup = torch.clamp(z_sup, 0, 1)
+
+        # first layer
+        z_inf, z_sup = self._get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
+        z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
+
+        # second layer
+        z_inf, z_sup = self._get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
+        z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
+
+        # third layer -> logits
+        z_inf, z_sup = self._get_bounds_affine(self.linear3.weight, self.linear3.bias, z_inf, z_sup)
+
+        return z_inf, z_sup
+
+    def get_input_size(self) -> int:
+        return self.linear1.in_features
+
+    def get_output_size(self) -> int:
+        return self.linear3.out_features
+
+class VanillaBnnFashionMnist(VanillaBnnLinear):
+    def __init__(self):
+        super(VanillaBnnFashionMnist, self).__init__()
+        self.linear1 = torch.nn.Linear(784, 512)
+        self.linear2 = torch.nn.Linear(512, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # flatten the representation
+        x_start = torch.nn.Flatten()(x)
+        y = torch.nn.ReLU()(self.linear1(x_start))
+        y = self.linear2(y)
+
+        return y
+
+    def ibp_forward(self, x: torch.Tensor, eps: float) -> torch.Tensor:
+        activation = torch.nn.ReLU()
+        # flatten the representation
+        x_start = torch.nn.Flatten()(x)
+        z_inf, z_sup = x_start - eps, x_start + eps
+        z_inf = torch.clamp(z_inf, 0, 1)
+        z_sup = torch.clamp(z_sup, 0, 1)
+
+        # first layer
+        z_inf, z_sup = self._get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
+        z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
+
+        # second layer -> logits
+        z_inf, z_sup = self._get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
+
+        return z_inf, z_sup
+
+    def get_input_size(self) -> int:
+        return self.linear1.in_features
+
+    def get_output_size(self) -> int:
+        return self.linear2.out_features
 
 class IbpAdversarialLoss(torch.nn.Module):
     def __init__(self, net: VanillaBnnLinear, base_criterion: torch.nn.Module, eps: float):

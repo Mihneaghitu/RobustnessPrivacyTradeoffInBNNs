@@ -13,7 +13,8 @@ from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.membership_inference_bnn import \
     MembershipInferenceAttackBnn
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
+from probabilistic.HMC.vanilla_bnn import (VanillaBnnFashionMnist,
+                                           VanillaBnnMnist)
 
 
 def main():
@@ -25,17 +26,16 @@ def main():
 
 def adversarial_robustness_experiment():
     print(f"Using device: {TORCH_DEVICE}")
-    VANILLA_BNN = VanillaBnnLinear().to(TORCH_DEVICE)
+    # vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
+    vanilla_bnn = VanillaBnnFashionMnist().to(TORCH_DEVICE)
     train_data, test_data = load_mnist("./")
-    hyperparams_1 = HyperparamsHMC(num_epochs=40, num_burnin_epochs=15, step_size=0.025, lf_steps=600, criterion=torch.nn.CrossEntropyLoss(),
-                                   batch_size=100, momentum_std=0.01, run_dp=False, grad_norm_bound=5, dp_sigma=0.1, alpha=0.9, eps=0.1)
-    # 82.42%, 32.02%, 5.79% with IBP - 70, 15, 0.6
-    # 90.42%, 73.37%, 0.25% with FGSM - 45, 15
-    hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams_1, AttackType.IBP)
+    hyperparams_1 = HyperparamsHMC(num_epochs=25, num_burnin_epochs=7, step_size=0.01, lf_steps=120, criterion=torch.nn.CrossEntropyLoss(),
+                                   batch_size=100, momentum_std=0.01, run_dp=False, grad_norm_bound=5, dp_sigma=0.1, alpha=0.965, eps=0.1)
+    hmc = AdvHamiltonianMonteCarlo(vanilla_bnn, hyperparams_1, AttackType.IBP)
 
     samples = hmc.train_mnist_vanilla(train_data)
 
-    hmc.hps.eps = 0.05
+    hmc.hps.eps = 0.08
     adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, samples)
     adv_test_set_fgsm = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, samples)
 
@@ -61,18 +61,19 @@ def adversarial_robustness_experiment():
 
 def membership_inference_dnn_experiment():
     # -------------- Hyperparams Values --------------
-    BATCH_SIZE, NUM_EPOCHS, LR = 100, 20, 0.001
+    batch_size, num_epochs, lr = 100, 20, 0.001
+    # ------------------------------------------------
     train_data, _ = load_mnist()
     moments = get_marginal_distributions(train_data)
-    TARGET_NETWORK = VanillaNetLinear().to(TORCH_DEVICE)
-    TARGET_NETWORK.load_state_dict(torch.load('vanilla_network.pt'))
-    membership_inference_attack = MembershipInferenceAttack(TARGET_NETWORK, TARGET_NETWORK.get_output_size(), moments)
+    target_network = VanillaNetLinear().to(TORCH_DEVICE)
+    target_network.load_state_dict(torch.load('vanilla_network.pt'))
+    membership_inference_attack = MembershipInferenceAttack(target_network, target_network.get_output_size(), moments)
     print("Training shadow models...")
-    input_for_attack_models = membership_inference_attack.train_shadow_models(BATCH_SIZE, NUM_EPOCHS, LR)
+    input_for_attack_models = membership_inference_attack.train_shadow_models(batch_size, num_epochs, lr)
     print("Finished training shadow models.")
     # ------------------------------------------------
     print("Training attack models...")
-    membership_inference_attack.train_attack_models(input_for_attack_models, BATCH_SIZE, NUM_EPOCHS, LR)
+    membership_inference_attack.train_attack_models(input_for_attack_models, batch_size, num_epochs, lr)
     print("Finished training attack models.")
     # ------------------------------------------------
     num_test_samples = len(train_data) // 2
@@ -98,23 +99,23 @@ def membership_inference_bnn_experiment():
     print("Training Bayesian Neural Network using HMC...")
     train_data, _ = load_mnist()
     moments = get_marginal_distributions(train_data)
-    TARGET_NETWORK = VanillaBnnLinear().to(TORCH_DEVICE)
+    target_network = VanillaBnnMnist().to(TORCH_DEVICE)
     hyperparams = HyperparamsHMC(num_epochs=20, num_burnin_epochs=5, step_size=0.01, lf_steps=120, criterion=torch.nn.CrossEntropyLoss(),
                                  batch_size=100, momentum_std=0.01)
-    hmc = HamiltonianMonteCarlo(TARGET_NETWORK, hyperparams)
+    hmc = HamiltonianMonteCarlo(target_network, hyperparams)
     posterior_samples = hmc.train_mnist_vanilla(train_data)
     accuracy = hmc.test_hmc_with_average_logits(train_data, posterior_samples)
     print(f"Accuracy of BNN with average logits on training set: {accuracy} %")
 
 
-    BATCH_SIZE, NUM_EPOCHS, LR = 100, 20, 0.001
-    membership_inference_attack = MembershipInferenceAttackBnn(TARGET_NETWORK, TARGET_NETWORK.get_output_size(), moments, posterior_samples)
+    batch_size, num_epochs, lr = 100, 20, 0.001
+    membership_inference_attack = MembershipInferenceAttackBnn(target_network, target_network.get_output_size(), moments, posterior_samples)
     print("Training shadow models...")
-    input_for_attack_models = membership_inference_attack.train_shadow_models(BATCH_SIZE, NUM_EPOCHS, LR)
+    input_for_attack_models = membership_inference_attack.train_shadow_models(batch_size, num_epochs, lr)
     print("Finished training shadow models.")
     # ------------------------------------------------
     print("Training attack models...")
-    membership_inference_attack.train_attack_models(input_for_attack_models, BATCH_SIZE, NUM_EPOCHS, LR)
+    membership_inference_attack.train_attack_models(input_for_attack_models, batch_size, num_epochs, lr)
     print("Finished training attack models.")
     # ------------------------------------------------
     num_test_samples = len(train_data) // 2
@@ -134,7 +135,6 @@ def membership_inference_bnn_experiment():
     print("Testing attack models...")
     membership_inference_attack.test_attack_models_dnn(attack_models_dset)
     print("Finished testing attack models.")
-    #! Accuracy: 62.71%
 
 if __name__ == '__main__':
     main()

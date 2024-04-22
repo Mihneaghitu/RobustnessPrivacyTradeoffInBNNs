@@ -92,9 +92,6 @@ def ibp_eval(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, post
         sample_logits = torch.tensor([]).to(TORCH_DEVICE)
         for data, target in data_loader:
             batch_data_test, y_true_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
-            # use y_hat because conceptually, at inference time, the true labels are unknown
-            #! NO
-            # y_hat = net(batch_data_test)
             batch_worst_case_logits = net.get_worst_case_logits(batch_data_test, y_true_test, hps.eps)
             batch_normalized_worst_case_logits = F.softmax(batch_worst_case_logits, dim=1)
 

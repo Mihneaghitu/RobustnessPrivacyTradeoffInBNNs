@@ -26,7 +26,6 @@ class AdvHamiltonianMonteCarlo:
         self.adv_generator = None
         self.adv_criterion = None
         self.desired_eps, self.desired_alpha = self.hps.eps, self.hps.alpha
-        self.hps.eps, self.hps.alpha = 0, 1
         match attack_type:
             case AttackType.FGSM:
                 self.adv_generator = self.__gen_fgsm_adv_examples
@@ -37,6 +36,7 @@ class AdvHamiltonianMonteCarlo:
             case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_adv_examples
                 self.adv_criterion = IbpAdversarialLoss(net, torch.nn.CrossEntropyLoss(), self.hps.eps)
+        self.hps.eps, self.hps.alpha = 0, 1
 
     def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
@@ -270,7 +270,7 @@ class AdvHamiltonianMonteCarlo:
         return batch_data, batch_target
 
     def __run_schedule(self, eps: float, alpha: float, itr: int, warmup_steps: int) -> Tuple[float, float]:
-        if self.attack_type in [AttackType.FGSM, AttackType.PGD]:
+        if self.attack_type in [AttackType.FGSM, AttackType.PGD] or warmup_steps == 0:
             return self.desired_eps, self.desired_alpha
 
         delta_eps, delta_alpha = self.desired_eps, 1 - self.desired_alpha
