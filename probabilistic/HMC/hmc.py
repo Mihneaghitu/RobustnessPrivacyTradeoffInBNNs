@@ -84,7 +84,7 @@ class HamiltonianMonteCarlo:
             if LOGGER_TYPE == LoggerType.WANDB:
                 wandb.log({'acceptance_probability': acceptance_prob})
 
-            if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
+            if epoch <= self.hps.num_burnin_epochs - 1 or dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
                 current_p = p
                 if epoch > self.hps.num_burnin_epochs - 1:
@@ -190,9 +190,7 @@ class HamiltonianMonteCarlo:
         start_params = self.net.get_params()
 
         # first update the nk params
-        for idx, param in enumerate(self.net.parameters()):
-            with torch.no_grad():
-                param.copy_(copy.deepcopy(q[idx]))
+        self.net.set_params(q)
 
         # compute the potential energy
         batch_data, batch_target = self.__get_batch(data_loader)

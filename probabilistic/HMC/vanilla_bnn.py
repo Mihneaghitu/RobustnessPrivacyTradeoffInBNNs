@@ -165,13 +165,7 @@ class IbpAdversarialLoss(torch.nn.Module):
         self.base_criterion = base_criterion
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        z_inf, z_sup = self.net.ibp_forward(x, self.eps)
-
-        #! inference: if z_inf > z_sup of all the rest provably robust
-        lower_bound_mask = torch.eye(10).to(TORCH_DEVICE)[y]
-        upper_bound_mask = 1 - lower_bound_mask
-        worst_case_logits = z_inf * lower_bound_mask + z_sup * upper_bound_mask
-
+        worst_case_logits = self.net.get_worst_case_logits(x, y, self.eps)
         l_robust = self.base_criterion(worst_case_logits, y)
 
         return l_robust

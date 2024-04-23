@@ -22,7 +22,7 @@ glb.LOGGER_TYPE = LoggerType.WANDB
 train_data, test_data = load_mnist("../../")
 
 def adv_no_dp_config() -> dict:
-    adv_no_dp_config = {
+    adv_config = {
         'method': 'bayes',
         'metric': {
             'name': 'composite_std_robust_metric',
@@ -58,9 +58,9 @@ def adv_no_dp_config() -> dict:
             'values': [0.05]
         }
     }
-    adv_no_dp_config['parameters'] = params_adv_dict
+    adv_config['parameters'] = params_adv_dict
 
-    return adv_no_dp_config
+    return adv_config
 
 # ----------------------------------------------------------------------------------------------------------------------
 # -------------------------------------- Grid Search Without Differential Privacy --------------------------------------

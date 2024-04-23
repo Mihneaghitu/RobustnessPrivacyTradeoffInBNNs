@@ -27,11 +27,11 @@ def main():
 def adversarial_robustness_experiment():
     print(f"Using device: {TORCH_DEVICE}")
     # vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
-    vanilla_bnn = VanillaBnnFashionMnist().to(TORCH_DEVICE)
+    vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     train_data, test_data = load_mnist("./")
-    hyperparams_1 = HyperparamsHMC(num_epochs=25, num_burnin_epochs=7, step_size=0.01, lf_steps=120, criterion=torch.nn.CrossEntropyLoss(),
-                                   batch_size=100, momentum_std=0.01, run_dp=False, grad_norm_bound=5, dp_sigma=0.1, alpha=0.965, eps=0.1)
-    hmc = AdvHamiltonianMonteCarlo(vanilla_bnn, hyperparams_1, AttackType.IBP)
+    hyperparams_1 = HyperparamsHMC(num_epochs=25, num_burnin_epochs=18, step_size=0.02, warmup_step_size=0.1, lf_steps=120,
+                                   criterion=torch.nn.CrossEntropyLoss(), batch_size=100, momentum_std=0.01, alpha=0.2, eps=0.1)
+    hmc = AdvHamiltonianMonteCarlo(vanilla_bnn, hyperparams_1, attack_type=AttackType.IBP)
 
     samples = hmc.train_mnist_vanilla(train_data)
 

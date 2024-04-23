@@ -22,10 +22,10 @@ class AdvHamiltonianMonteCarlo:
     def __init__(self, net: VanillaBnnLinear, hyperparameters: HyperparamsHMC, attack_type: AttackType = AttackType.FGSM):
         self.net = net
         self.hps = hyperparameters
+        self.init_hps = copy.deepcopy(hyperparameters)
         self.attack_type = attack_type
         self.adv_generator = None
         self.adv_criterion = None
-        self.desired_eps, self.desired_alpha = self.hps.eps, self.hps.alpha
         match attack_type:
             case AttackType.FGSM:
                 self.adv_generator = self.__gen_fgsm_adv_examples
@@ -61,11 +61,12 @@ class AdvHamiltonianMonteCarlo:
             current_p = copy.deepcopy(p)
 
             # ------- half step for momentum -------
+            self.__run_schedule(itr, warmup_steps)
             closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
             running_loss_ce += closs.item()
             running_loss_ce_adv += closs_adv.item()
             for i in range(self.hps.lf_steps):
-                self.hps.eps, self.hps.alpha = self.__run_schedule(self.hps.eps, self.hps.alpha, itr, warmup_steps)
+                self.__run_schedule(itr, warmup_steps)
                 # ------------------- UPDATE q_new = q + lf_ss * p -------------------
                 self.__q_update(p, self.hps.step_size)
 
@@ -96,14 +97,15 @@ class AdvHamiltonianMonteCarlo:
 
             # metropolis-hastings acceptance step
             q = self.net.get_params()
-            initial_energy = self.__get_energy(current_q, current_p, self.hps.criterion, data_loader)
-            end_energy = self.__get_energy(q, p, self.hps.criterion, data_loader)
+            initial_energy = self.__get_energy(current_q, current_p, data_loader)
+            end_energy = self.__get_energy(q, p, data_loader)
             acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             print(f'Acceptance probability: {acceptance_prob}')
             if LOGGER_TYPE == LoggerType.WANDB:
                 wandb.log({'acceptance_probability': acceptance_prob})
 
-            if dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
+
+            if epoch <= self.hps.num_burnin_epochs - 1 or dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
                 current_q = q
                 current_p = p
                 if epoch > self.hps.num_burnin_epochs - 1:
@@ -235,28 +237,27 @@ class AdvHamiltonianMonteCarlo:
         #* This looks like a dummy function, and it is. Nevertheless, it's necessary for the sake of consistency
         return batch_input
 
-    def __get_energy(self, q: list, p: list, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+    def __get_energy(self, q: list, p: list, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
         # save the current parameters
         start_params = self.net.get_params()
 
         # first update the nk params
-        for idx, param in enumerate(self.net.parameters()):
-            with torch.no_grad():
-                param.copy_(copy.deepcopy(q[idx]))
+        self.net.set_params(q)
 
         # compute the potential energy
         batch_data, batch_target = self.__get_batch(data_loader)
-        closs = criterion(self.net(batch_data), batch_target)
+        closs = self.hps.criterion(self.net(batch_data), batch_target)
         adv_ex = self.adv_generator(batch_data, batch_target)
-        closs_adv = criterion(self.net(adv_ex), batch_target)
+        x = adv_ex if self.attack_type == AttackType.IBP else self.net(adv_ex)
+        closs_adv = self.adv_criterion(x, batch_target)
         prior_loss = torch.tensor(0.0).to(TORCH_DEVICE)
-        for idx, param in enumerate(self.net.parameters()):
+        for _, param in enumerate(self.net.parameters()):
             prior_loss += torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
         potential_energy = self.hps.alpha * closs + (1 - self.hps.alpha) * closs_adv + prior_loss
 
         # compute the kinetic energy
         kinetic_energy = torch.tensor(0.0).to(TORCH_DEVICE)
-        for idx, p_val in enumerate(p):
+        for _, p_val in enumerate(p):
             kinetic_energy = kinetic_energy + torch.sum(p_val * p_val) / 2
 
         # reset the parameters
@@ -269,15 +270,18 @@ class AdvHamiltonianMonteCarlo:
 
         return batch_data, batch_target
 
-    def __run_schedule(self, eps: float, alpha: float, itr: int, warmup_steps: int) -> Tuple[float, float]:
+    def __run_schedule(self, itr: int, warmup_steps: int) -> None:
         if self.attack_type in [AttackType.FGSM, AttackType.PGD] or warmup_steps == 0:
-            return self.desired_eps, self.desired_alpha
+            self.hps.eps, self.hps.alpha = self.init_hps.eps, self.init_hps.alpha
+            self.hps.step_size = self.init_hps.step_size if itr > warmup_steps else self.init_hps.warmup_step_size
+            return
 
-        delta_eps, delta_alpha = self.desired_eps, 1 - self.desired_alpha
+        delta_eps, delta_alpha = self.init_hps.eps, 1 - self.init_hps.alpha
         increment_eps, increment_alpha = delta_eps / warmup_steps, delta_alpha / warmup_steps
 
         if itr <= warmup_steps:
-            eps += increment_eps
-            alpha -= increment_alpha
-
-        return eps, alpha
+            self.hps.eps += increment_eps
+            self.hps.alpha -= increment_alpha
+            self.hps.step_size = self.init_hps.warmup_step_size
+        else:
+            self.hps.step_size = self.init_hps.step_size
