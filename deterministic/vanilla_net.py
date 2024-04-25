@@ -1,9 +1,14 @@
+from enum import Enum
+
 import torch
-from torch.nn.modules.module import Module
 
 
+class RegularizationMethod(Enum):
+    NONE = 0
+    L1 = 1
+    L2 = 2
 class VanillaNetLinear(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, regularization_method: RegularizationMethod = RegularizationMethod.NONE, alpha: float = 0.):
         super(VanillaNetLinear, self).__init__()
         self.linear = torch.nn.Sequential(
             torch.nn.Linear(784, 128),
@@ -13,11 +18,25 @@ class VanillaNetLinear(torch.nn.Module):
             torch.nn.Linear(64, 10),
             # torch.nn.Softmax(dim=1)
         )
+        self.regularization_method = regularization_method
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
         y = torch.nn.Flatten()(x)
         y = self.linear(y)
+        # add regularization
+        reg = torch.tensor(0.)
+        match self.regularization_method:
+            case RegularizationMethod.L1:
+                for param in self.parameters():
+                    reg += torch.norm(param, 1)
+            case RegularizationMethod.L2:
+                for param in self.parameters():
+                    reg += torch.norm(param, 2)
+            case RegularizationMethod.NONE:
+                pass
+
+        y += self.alpha * reg
 
         return y
 
@@ -32,20 +51,3 @@ class VanillaNetLinear(torch.nn.Module):
 
     def add_noise(self, param: torch.Tensor, noise: torch.Tensor, learning_rate: float) -> torch.Tensor:
         return param + learning_rate * noise
-
-class RegularizedVanillaNetLinear(VanillaNetLinear):
-    def __init__(self, alpha: float):
-        super(RegularizedVanillaNetLinear, self).__init__()
-        self.alpha = alpha
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # flatten the representation
-        y = torch.nn.Flatten()(x)
-        y = self.linear(y)
-        # add l2 regularization
-        l2_reg = torch.tensor(0.)
-        for param in self.parameters():
-            l2_reg += torch.norm(param)
-        y += self.alpha * l2_reg
-
-        return y

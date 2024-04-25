@@ -202,7 +202,7 @@ class AdvHamiltonianMonteCarlo:
 
         return closs
 
-    def __gen_pgd_adv_examples(self, batch_input: torch.Tensor, batch_target: torch.Tensor, bound=0.3, eps=0.05, iters=10):
+    def __gen_pgd_adv_examples(self, batch_input: torch.Tensor, batch_target: torch.Tensor, iters=10):
         curr_input = copy.deepcopy(batch_input)
         for _ in range(iters) :
             curr_input.requires_grad = True
@@ -212,11 +212,12 @@ class AdvHamiltonianMonteCarlo:
             loss = self.hps.criterion(y_hat, batch_target)
             loss.backward()
 
-            adv_examples = curr_input + eps * torch.sign(curr_input.grad.data)
-            delta = torch.clamp(adv_examples - batch_input, min=-bound, max=bound)
-            adv_examples = torch.clamp(batch_input + delta, min=0, max=1).detach_()
+            cur_it_projected_adv_examples = copy.deepcopy(curr_input) + self.hps.eps * torch.sign(curr_input.grad.data)
+            delta = torch.clamp(cur_it_projected_adv_examples - batch_input, min=-self.hps.eps, max=self.hps.eps)
+            cur_it_projected_adv_examples = torch.clamp(batch_input + delta, min=0, max=1).detach_()
+            curr_input = copy.deepcopy(cur_it_projected_adv_examples)
 
-        return adv_examples
+        return cur_it_projected_adv_examples
 
     def __gen_fgsm_adv_examples(self, batch_input: torch.Tensor, batch_target: torch.Tensor) -> torch.Tensor:
         batch_input.requires_grad = True
@@ -258,7 +259,7 @@ class AdvHamiltonianMonteCarlo:
         # compute the kinetic energy
         kinetic_energy = torch.tensor(0.0).to(TORCH_DEVICE)
         for _, p_val in enumerate(p):
-            kinetic_energy = kinetic_energy + torch.sum(p_val * p_val) / 2
+            kinetic_energy += torch.neg(torch.sum(torch.pow(p_val, 2)) / 2)
 
         # reset the parameters
         self.net.set_params(start_params)

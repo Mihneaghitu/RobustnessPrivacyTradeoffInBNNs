@@ -196,14 +196,14 @@ class HamiltonianMonteCarlo:
         batch_data, batch_target = self.__get_batch(data_loader)
         closs = criterion(self.net(batch_data), batch_target)
         prior_loss = torch.tensor(0.0).to(TORCH_DEVICE)
-        for idx, param in enumerate(self.net.parameters()):
+        for _, param in enumerate(self.net.parameters()):
             prior_loss += torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
         potential_energy = closs + prior_loss
 
         # compute the kinetic energy
         kinetic_energy = torch.tensor(0.0).to(TORCH_DEVICE)
-        for idx, p_val in enumerate(p):
-            kinetic_energy = kinetic_energy + torch.sum(p_val * p_val) / 2
+        for _, p_val in enumerate(p):
+            kinetic_energy += torch.neg(torch.sum(torch.pow(p_val , 2)) / 2)
 
         # reset the parameters
         self.net.set_params(start_params)

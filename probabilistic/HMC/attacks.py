@@ -47,8 +47,8 @@ def fgsm_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, t
 
     return adv_dataset
 
-def pgd_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, posterior_samples: List[torch.Tensor],
-                                  bound: float = 0.3, iterations: int = 10) -> Dataset:
+def pgd_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset,
+                                  posterior_samples: List[torch.Tensor], iterations: int = 10) -> Dataset:
     # x_adv_theta = PI_S[x + eps * sign(E_theta[grad_x log p(y | x, theta)])]
     curr_dset = GenericDataset(copy.deepcopy(test_set.data.to(TORCH_DEVICE)), copy.deepcopy(test_set.targets.to(TORCH_DEVICE)))
     batch_size = 1000
@@ -73,9 +73,9 @@ def pgd_predictive_distrib_attack(net: VanillaBnnLinear, hps: HyperparamsHMC, te
             # squeeze dim 1 because image is of shape [1, 28, 28] where 1 is the number of channels, so batch_adv_examples is of shape [batch_size, 1, 28, 28]
             adv_examples_grads_mean += test_set_adv_grads.squeeze(dim=1) / len(posterior_samples)
 
-        curr_it_adv_inputs = copy.deepcopy(curr_dset.data.to(TORCH_DEVICE) + hps.eps * torch.sign(adv_examples_grads_mean))
-        delta = torch.clamp(curr_it_adv_inputs - curr_dset.data.to(TORCH_DEVICE), -bound, bound)
-        curr_it_projected_adv_inputs = torch.clamp(curr_dset.data.to(TORCH_DEVICE) + delta, 0, 1)
+        curr_it_adv_inputs = copy.deepcopy(curr_dset.data.to(TORCH_DEVICE)) + hps.eps * torch.sign(adv_examples_grads_mean)
+        delta = torch.clamp(curr_it_adv_inputs - test_set.data.to(TORCH_DEVICE), -hps.eps, hps.eps)
+        curr_it_projected_adv_inputs = torch.clamp(test_set.data.to(TORCH_DEVICE) + delta, 0, 1)
         curr_dset = GenericDataset(curr_it_projected_adv_inputs, curr_dset.targets)
 
     return curr_dset

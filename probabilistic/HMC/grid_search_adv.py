@@ -40,7 +40,10 @@ def adv_no_dp_config() -> dict:
             'values':  [128, 256, 512]
         },
         "step_size": {
-            'values': [0.01, 0.05, 0.1]
+            'values': [0.005, 0.0075, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25]
+        },
+        "warmup_step_size": {
+            'values': [0.05, 0.075, 0.1, 0.25, 0.125, 0.5, 0.75]
         },
         "lf_steps": {
             'values': [50, 100, 250, 500, 600]
@@ -49,7 +52,7 @@ def adv_no_dp_config() -> dict:
             'values': [0.01, 0.05, 0.1]
         },
         "alpha": {
-            'values': [0.5, 0.6, 0.75, 0.8, 0.85, 0.9, 0.925, 0.95, 0.96, 0.965, 0.97, 0.975, 0.98]
+            'values': list(torch.arange(0.0, 1.0, 0.05))
         },
         "eps": {
             'values': [0.1]
@@ -83,7 +86,10 @@ def grid_search_adv_no_dp(attack_type: str):
             eps=grid_config.eps
         )
 
-        attack = {"fgsm": AttackType.FGSM, "pgd": AttackType.PGD, "ibp": AttackType.IBP}.get(attack_type, AttackType.FGSM)
+        attack = {"fgsm": AttackType.FGSM,
+                  "pgd": AttackType.PGD,
+                  "ibp": AttackType.IBP}.get(attack_type, AttackType.FGSM)
+
         print(f"Attack type is {attack}")
         hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams, attack)
         posterior_samples = hmc.train_mnist_vanilla(train_data)
@@ -103,11 +109,9 @@ def grid_search_adv_no_dp(attack_type: str):
         wandb.log({'acc_ibp': acc_ibp})
         wandb.log({'acc_pgd': acc_pgd})
 
-        composite_std_robust_metric = 0
-        if attack == AttackType.FGSM:
-            composite_std_robust_metric += (acc_std / 3 + acc_fgsm)
-        if attack == AttackType.IBP:
-            composite_std_robust_metric += acc_ibp
+        composite_std_robust_metric = {AttackType.FGSM: acc_fgsm,
+                                       AttackType.PGD: acc_pgd,
+                                       AttackType.IBP: acc_ibp}.get(attack_type, AttackType.FGSM)
 
         wandb.log({'composite_std_robust_metric': composite_std_robust_metric})
 
@@ -124,4 +128,4 @@ def run_adv_no_dp_sweep(attack_type: str):
     sweep_config = adv_no_dp_config()
 
     adv_no_dp_sweep = wandb.sweep(sweep=sweep_config, project="adv_robust_hmc_ibp")
-    wandb.agent(sweep_id=adv_no_dp_sweep, function=partial(grid_search_adv_no_dp, attack_type), count=150)
+    wandb.agent(sweep_id=adv_no_dp_sweep, function=partial(grid_search_adv_no_dp, attack_type), count=250)
