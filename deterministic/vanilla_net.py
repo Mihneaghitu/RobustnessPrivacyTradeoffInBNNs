@@ -10,20 +10,17 @@ class RegularizationMethod(Enum):
 class VanillaNetLinear(torch.nn.Module):
     def __init__(self, regularization_method: RegularizationMethod = RegularizationMethod.NONE, alpha: float = 0.):
         super(VanillaNetLinear, self).__init__()
-        self.linear = torch.nn.Sequential(
-            torch.nn.Linear(784, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 10),
-            # torch.nn.Softmax(dim=1)
-        )
+        self.linear1 = torch.nn.Linear(784, 512)
+        self.linear2 = torch.nn.Linear(512, 10)
+
         self.regularization_method = regularization_method
+        self.alpha = alpha
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # flatten the representation
-        y = torch.nn.Flatten()(x)
-        y = self.linear(y)
+        # flatten the representation and propagate
+        x = torch.nn.Flatten()(x)
+        y = torch.nn.ReLU()(self.linear1(x))
+        y = self.linear2(y)
         # add regularization
         reg = torch.tensor(0.)
         match self.regularization_method:

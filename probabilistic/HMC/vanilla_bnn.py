@@ -80,16 +80,14 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
 class VanillaBnnMnist(VanillaBnnLinear):
     def __init__(self):
         super(VanillaBnnMnist, self).__init__()
-        self.linear1 = torch.nn.Linear(784, 128)
-        self.linear2 = torch.nn.Linear(128, 64)
-        self.linear3 = torch.nn.Linear(64, 10)
+        self.linear1 = torch.nn.Linear(784, 512)
+        self.linear2 = torch.nn.Linear(512, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
         x_start = torch.nn.Flatten()(x)
         y = torch.nn.ReLU()(self.linear1(x_start))
-        y = torch.nn.ReLU()(self.linear2(y))
-        y = self.linear3(y)
+        y = self.linear2(y)
 
         return y
 
@@ -105,12 +103,9 @@ class VanillaBnnMnist(VanillaBnnLinear):
         z_inf, z_sup = self._get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
         z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
 
-        # second layer
+        # second layer -> logits
         z_inf, z_sup = self._get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
-        z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
 
-        # third layer -> logits
-        z_inf, z_sup = self._get_bounds_affine(self.linear3.weight, self.linear3.bias, z_inf, z_sup)
 
         return z_inf, z_sup
 
@@ -118,7 +113,7 @@ class VanillaBnnMnist(VanillaBnnLinear):
         return self.linear1.in_features
 
     def get_output_size(self) -> int:
-        return self.linear3.out_features
+        return self.linear2.out_features
 
 class VanillaBnnFashionMnist(VanillaBnnLinear):
     def __init__(self):

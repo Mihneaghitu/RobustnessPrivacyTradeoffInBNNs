@@ -1,8 +1,8 @@
 import copy
+import os
 import sys
 from typing import List, Tuple
 
-import numpy as np
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
@@ -46,11 +46,8 @@ class AdvHamiltonianMonteCarlo:
 
         # Initialize the parameters with a standard normal --
         # q -> current net params, current q -> start net params
-        current_q = []
-        for param in self.net.named_parameters():
-            init_vals = torch.normal(mean=0.0, std=0.1, size=tuple(param[1].shape)).to(TORCH_DEVICE)
-            param[1].data = torch.nn.parameter.Parameter(init_vals)
-            current_q.append(copy.deepcopy(param[1].data))
+        root_dir = __file__.rsplit('/', 3)[0]
+        current_q = self.__init_params(from_trained=True, path=os.path.abspath(root_dir + "/vanilla_network.pt"))
 
         running_loss_ce, running_loss_ce_adv = 0.0, 0.0
         warmup_steps, itr = self.hps.num_burnin_epochs * self.hps.lf_steps, 0
@@ -286,3 +283,17 @@ class AdvHamiltonianMonteCarlo:
             self.hps.step_size = self.init_hps.warmup_step_size
         else:
             self.hps.step_size = self.init_hps.step_size
+
+    def __init_params(self, from_trained: bool = False, path: str = None) -> List[torch.Tensor]:
+        init_q = []
+        if from_trained:
+            self.net.load_state_dict(torch.load(path))
+            for param in self.net.parameters():
+                init_q.append(copy.deepcopy(param.data))
+        else:
+            for param in self.net.named_parameters():
+                init_vals = torch.normal(mean=0.0, std=0.1, size=tuple(param[1].shape)).to(TORCH_DEVICE)
+                param[1].data = torch.nn.parameter.Parameter(init_vals)
+                init_q.append(copy.deepcopy(param[1].data))
+
+        return init_q

@@ -52,7 +52,7 @@ def adv_no_dp_config() -> dict:
             'values': [0.01, 0.05, 0.1]
         },
         "alpha": {
-            'values': list(torch.arange(0.0, 1.0, 0.05))
+            'values': [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
         },
         "eps": {
             'values': [0.1]
@@ -111,7 +111,7 @@ def grid_search_adv_no_dp(attack_type: str):
 
         composite_std_robust_metric = {AttackType.FGSM: acc_fgsm,
                                        AttackType.PGD: acc_pgd,
-                                       AttackType.IBP: acc_ibp}.get(attack_type, AttackType.FGSM)
+                                       AttackType.IBP: acc_ibp}.get(attack, AttackType.FGSM)
 
         wandb.log({'composite_std_robust_metric': composite_std_robust_metric})
 

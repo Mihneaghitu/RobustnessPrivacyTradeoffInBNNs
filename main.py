@@ -29,13 +29,13 @@ def adversarial_robustness_experiment():
     # vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     train_data, test_data = load_mnist("./")
-    hyperparams_1 = HyperparamsHMC(num_epochs=25, num_burnin_epochs=18, step_size=0.02, warmup_step_size=0.1, lf_steps=120,
-                                   criterion=torch.nn.CrossEntropyLoss(), batch_size=100, momentum_std=0.01, alpha=0.2, eps=0.1)
+    hyperparams_1 = HyperparamsHMC(num_epochs=45, num_burnin_epochs=20, step_size=0.02, warmup_step_size=0.2, lf_steps=120,
+                                   criterion=torch.nn.CrossEntropyLoss(), batch_size=1000, momentum_std=0.01, alpha=0.5, eps=0.075)
     hmc = AdvHamiltonianMonteCarlo(vanilla_bnn, hyperparams_1, attack_type=AttackType.IBP)
 
     samples = hmc.train_mnist_vanilla(train_data)
 
-    hmc.hps.eps = 0.08
+    hmc.hps.eps = 0.0675
     adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, samples)
     adv_test_set_fgsm = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, samples)
 
