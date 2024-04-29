@@ -11,6 +11,7 @@ class HyperparamsHMC:
     lf_steps: int
     criterion: Module
     batch_size: int
+    num_chains: int = 2
     warmup_step_size: float = 0.1
     momentum_std: float = 1.0
     prior_mu: float = 0.0

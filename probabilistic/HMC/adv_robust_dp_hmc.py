@@ -40,77 +40,96 @@ class AdvHamiltonianMonteCarlo:
 
     def train_mnist_vanilla(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
+        curr_chain = 0
+        posterior_samples_all_restarts = []
+        while curr_chain < self.hps.num_chains:
+            data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
+            posterior_samples = []
 
-        data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
-        posterior_samples = []
+            # Initialize the parameters with a standard normal --
+            # q -> current net params, current q -> start net params
+            root_dir = __file__.rsplit('/', 3)[0]
+            current_q = self.__init_params(from_trained=(curr_chain == 0), path=os.path.abspath(root_dir + "/vanilla_network.pt"))
 
-        # Initialize the parameters with a standard normal --
-        # q -> current net params, current q -> start net params
-        root_dir = __file__.rsplit('/', 3)[0]
-        current_q = self.__init_params(from_trained=True, path=os.path.abspath(root_dir + "/vanilla_network.pt"))
+            running_loss_ce, running_loss_ce_adv = 0.0, 0.0
+            warmup_steps, itr = self.hps.num_burnin_epochs * self.hps.lf_steps, 0
+            for epoch in range(self.hps.num_epochs):
+                losses, p = [], []
+                for param in self.net.parameters():
+                    p.append(dist.Normal(0, self.hps.momentum_std).sample(param.shape).to(TORCH_DEVICE))
+                current_p = copy.deepcopy(p)
 
-        running_loss_ce, running_loss_ce_adv = 0.0, 0.0
-        warmup_steps, itr = self.hps.num_burnin_epochs * self.hps.lf_steps, 0
-        for epoch in range(self.hps.num_epochs):
-            losses, p = [], []
-            for param in self.net.parameters():
-                p.append(dist.Normal(0, self.hps.momentum_std).sample(param.shape).to(TORCH_DEVICE))
-            current_p = copy.deepcopy(p)
-
-            # ------- half step for momentum -------
-            self.__run_schedule(itr, warmup_steps)
-            closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
-            running_loss_ce += closs.item()
-            running_loss_ce_adv += closs_adv.item()
-            for i in range(self.hps.lf_steps):
+                # ------- half step for momentum -------
                 self.__run_schedule(itr, warmup_steps)
-                # ------------------- UPDATE q_new = q + lf_ss * p -------------------
-                self.__q_update(p, self.hps.step_size)
-
-                # ------------------- UPDATE p_new = p - lf_ss * (aplha * grad_U(q) + (1 - alpha) grad_U_adv(q)) -------------------
-                if i == self.hps.lf_steps - 1:
-                    break
-                closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size)
-
-                # -------------------- Logging --------------------
-                losses.append((closs.item(), closs_adv.item()))
+                closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
                 running_loss_ce += closs.item()
                 running_loss_ce_adv += closs_adv.item()
-                if i % print_freq == print_freq - 1:
-                    print(f'[epoch {epoch + 1}, leapfrog step {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
-                    print(f'[epoch {epoch + 1}, leapfrog step {i + 1}] ce_adversarial loss: {running_loss_ce_adv / (self.hps.batch_size * print_freq)}')
-                    running_loss_ce, running_loss_ce_adv = 0.0, 0.0
-                itr +=1
+                for i in range(self.hps.lf_steps):
+                    self.__run_schedule(itr, warmup_steps)
+                    # ------------------- UPDATE q_new = q + lf_ss * p -------------------
+                    self.__q_update(p, self.hps.step_size)
 
-            if LOGGER_TYPE == LoggerType.WANDB:
-                wandb.log({'cross_entropy_loss': losses[-1][0]})
-                wandb.log({'epoch': epoch + 1})
-                wandb.log({'cross_entropy_adversarial_loss': losses[-1][1]})
+                    # ------------------- UPDATE p_new = p - lf_ss * (aplha * grad_U(q) + (1 - alpha) grad_U_adv(q)) -------------------
+                    if i == self.hps.lf_steps - 1:
+                        break
+                    closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size)
 
-            # -------------- Final half step for momentum --------------
-            closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
-            for idx, p_val in enumerate(p):
-                p[idx] = -p_val
+                    # -------------------- Logging --------------------
+                    losses.append((closs.item(), closs_adv.item()))
+                    running_loss_ce += closs.item()
+                    running_loss_ce_adv += closs_adv.item()
+                    if i % print_freq == print_freq - 1:
+                        print(f'[epoch {epoch + 1}, leapfrog step {i + 1}] cross_entropy loss: {running_loss_ce / (self.hps.batch_size * print_freq)}')
+                        print(f'[epoch {epoch + 1}, leapfrog step {i + 1}] ce_adversarial loss: {running_loss_ce_adv / (self.hps.batch_size * print_freq)}')
+                        running_loss_ce, running_loss_ce_adv = 0.0, 0.0
+                    itr +=1
 
-            # metropolis-hastings acceptance step
-            q = self.net.get_params()
-            initial_energy = self.__get_energy(current_q, current_p, data_loader)
-            end_energy = self.__get_energy(q, p, data_loader)
-            acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
-            print(f'Acceptance probability: {acceptance_prob}')
-            if LOGGER_TYPE == LoggerType.WANDB:
-                wandb.log({'acceptance_probability': acceptance_prob})
+                if LOGGER_TYPE == LoggerType.WANDB:
+                    wandb.log({'cross_entropy_loss': losses[-1][0]})
+                    wandb.log({'epoch': epoch + 1})
+                    wandb.log({'cross_entropy_adversarial_loss': losses[-1][1]})
 
+                # -------------- Final half step for momentum --------------
+                closs, closs_adv = self.__p_update(data_loader, p, self.hps.step_size / 2)
+                for idx, p_val in enumerate(p):
+                    p[idx] = -p_val
 
-            if epoch <= self.hps.num_burnin_epochs - 1 or dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
-                current_q = q
-                current_p = p
-                if epoch > self.hps.num_burnin_epochs - 1:
-                    posterior_samples.append(current_q)
-            self.net.set_params(current_q)
-            self.net.zero_grad()
+                # metropolis-hastings acceptance step
+                q = self.net.get_params()
+                initial_energy = self.__get_energy(current_q, current_p, data_loader)
+                end_energy = self.__get_energy(q, p, data_loader)
+                acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
+                print(f'Acceptance probability: {acceptance_prob}')
+                if LOGGER_TYPE == LoggerType.WANDB:
+                    wandb.log({'acceptance_probability': acceptance_prob})
 
-        return posterior_samples
+                if epoch <= self.hps.num_burnin_epochs - 1 or dist.Uniform(0, 1).sample().to(TORCH_DEVICE) < acceptance_prob:
+                    current_q = q
+                    current_p = p
+                    if epoch > self.hps.num_burnin_epochs - 1:
+                        posterior_samples.append(current_q)
+                self.net.set_params(current_q)
+                self.net.zero_grad()
+
+                if epoch == self.hps.num_epochs - 1:
+                    posterior_samples_all_restarts += posterior_samples
+                    return posterior_samples_all_restarts
+
+                # restart the chain
+                expectation_restart = (self.hps.num_chains - curr_chain) / (self.hps.num_epochs - self.hps.num_burnin_epochs * 1.5)
+                probability_restart = dist.Uniform(0, 1).sample().to(TORCH_DEVICE)
+                if epoch > self.hps.num_burnin_epochs and probability_restart <= expectation_restart and curr_chain < self.hps.num_chains - 1:
+                    print('Restarting the chain...')
+                    curr_chain += 1
+                    self.hps.num_epochs -= (epoch + 1)
+                    print(f'New number of epochs: {self.hps.num_epochs}')
+                    self.hps.num_burnin_epochs = 5 #TODO: tune this
+                    self.hps.eps, self.hps.alpha = 0, 1
+                    break
+
+            posterior_samples_all_restarts += posterior_samples
+
+        return posterior_samples_all_restarts
 
     def test_hmc_with_average_logits(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
         average_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
@@ -283,6 +302,12 @@ class AdvHamiltonianMonteCarlo:
             self.hps.step_size = self.init_hps.warmup_step_size
         else:
             self.hps.step_size = self.init_hps.step_size
+
+        # slowly decay the step size until it reaches 1/20 of the initial value
+        decay_start, decay_end = self.hps.lf_steps * self.hps.num_epochs / 2, self.hps.lf_steps * self.hps.num_epochs
+        decay_step = self.init_hps.step_size * 0.95 / (decay_end - decay_start)
+        if itr > decay_start and self.hps.step_size > self.init_hps.step_size * 0.05:
+            self.hps.step_size -= decay_step
 
     def __init_params(self, from_trained: bool = False, path: str = None) -> List[torch.Tensor]:
         init_q = []
