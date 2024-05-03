@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader
 
 sys.path.append('../../')
 
+from common.attack_types import AttackType
 from globals import LOGGER_TYPE, TORCH_DEVICE, LoggerType
-from probabilistic.attack_types import AttackType
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import IbpAdversarialLoss, VanillaBnnLinear
 

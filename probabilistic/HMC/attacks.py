@@ -10,8 +10,8 @@ sys.path.append('../../')
 
 import wandb
 
+from common.datasets import GenericDataset
 from globals import LOGGER_TYPE, TORCH_DEVICE
-from probabilistic.HMC.datasets import GenericDataset
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
 

@@ -7,9 +7,9 @@ import wandb
 sys.path.append('../../')
 
 import globals as glb
-from dataset_utils import load_mnist
+from common.attack_types import AttackType
+from common.dataset_utils import load_mnist
 from globals import TORCH_DEVICE, LoggerType
-from probabilistic.attack_types import AttackType
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import (fgsm_predictive_distrib_attack,
                                        ibp_eval, pgd_predictive_distrib_attack)
@@ -19,7 +19,7 @@ from probabilistic.HMC.vanilla_bnn import VanillaBnnMnist
 print(f"Using device: {TORCH_DEVICE}")
 VANILLA_BNN = VanillaBnnMnist().to(TORCH_DEVICE)
 glb.LOGGER_TYPE = LoggerType.WANDB
-train_data, test_data = load_mnist("../../")
+train_data, test_data = load_mnist()
 
 def adv_no_dp_config() -> dict:
     adv_config = {

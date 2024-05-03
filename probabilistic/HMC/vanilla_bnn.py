@@ -27,7 +27,7 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
     def get_output_size(self) -> int:
         pass
 
-    def hmc_forward(self, x: torch.Tensor, posterior_samples: List[torch.Tensor]) -> torch.Tensor:
+    def hmc_forward(self, x: torch.Tensor, posterior_samples: List[torch.Tensor], last_layer_act: callable = None) -> torch.Tensor:
         # We need to do a forward pass for each sample in the posterior
         # First dim is the batch size
         y_hat = torch.zeros(x.size(0), self.get_output_size()).to(TORCH_DEVICE)
@@ -35,6 +35,8 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
             self.set_params(sample)
             self.eval()
             y_hat += self.forward(x)
+            if last_layer_act is not None:
+                y_hat = last_layer_act(y_hat)
 
         y_hat = torch.div(y_hat, torch.tensor(len(posterior_samples)))
 

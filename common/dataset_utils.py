@@ -8,9 +8,9 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-def load_mnist(relative_path: str = ".") -> Tuple[torchvision.datasets.MNIST, torchvision.datasets.MNIST]:
-    curr_dir = os.getcwd()
-    os.chdir(curr_dir + "/" + relative_path)
+def load_mnist() -> Tuple[torchvision.datasets.MNIST, torchvision.datasets.MNIST]:
+    curr_dir = __file__.rsplit('/', 2)[0]
+    os.chdir(curr_dir)
     print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor()
@@ -20,9 +20,9 @@ def load_mnist(relative_path: str = ".") -> Tuple[torchvision.datasets.MNIST, to
 
     return train_data, test_data
 
-def load_fashion_mnist(relative_path: str = ".") -> Tuple[torchvision.datasets.FashionMNIST, torchvision.datasets.FashionMNIST]:
-    curr_dir = os.getcwd()
-    os.chdir(curr_dir + "/" + relative_path)
+def load_fashion_mnist() -> Tuple[torchvision.datasets.FashionMNIST, torchvision.datasets.FashionMNIST]:
+    curr_dir = __file__.rsplit('/', 2)[0]
+    os.chdir(curr_dir)
     print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor()

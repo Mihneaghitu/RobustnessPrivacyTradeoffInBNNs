@@ -1,18 +1,20 @@
 import torch
 
-from dataset_utils import get_marginal_distributions, load_mnist
+from common.attack_types import AttackType
+from common.dataset_utils import get_marginal_distributions, load_mnist
+from common.datasets import GenericDataset
 from deterministic.membership_inference_dnn import MembershipInferenceAttack
+from deterministic.pipeline import run_pipeline
 from deterministic.vanilla_net import VanillaNetLinear
 from globals import TORCH_DEVICE
-from probabilistic.attack_types import AttackType
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import (fgsm_predictive_distrib_attack,
                                        ibp_eval, pgd_predictive_distrib_attack)
-from probabilistic.HMC.datasets import GenericDataset
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.membership_inference_bnn import \
     MembershipInferenceAttackBnn
+from probabilistic.HMC.uncertainty import auroc, ece
 from probabilistic.HMC.vanilla_bnn import (VanillaBnnFashionMnist,
                                            VanillaBnnMnist)
 
@@ -22,15 +24,16 @@ def main():
     # membership_inference_dnn_experiment()
     # membership_inference_bnn_experiment()
     adversarial_robustness_experiment()
+    # run_pipeline()
     return 0
 
 def adversarial_robustness_experiment():
     print(f"Using device: {TORCH_DEVICE}")
     # vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
-    train_data, test_data = load_mnist("./")
-    hyperparams_1 = HyperparamsHMC(num_epochs=45, num_burnin_epochs=20, step_size=0.02, warmup_step_size=0.2, lf_steps=120,
-                                   criterion=torch.nn.CrossEntropyLoss(), batch_size=1000, momentum_std=0.01, alpha=0.5, eps=0.075)
+    train_data, test_data = load_mnist()
+    hyperparams_1 = HyperparamsHMC(num_epochs=3, num_burnin_epochs=1, step_size=0.02, warmup_step_size=0.2, lf_steps=100, num_chains=1,
+                                   criterion=torch.nn.CrossEntropyLoss(), batch_size=1000, momentum_std=0.01, alpha=1, eps=0.075)
     hmc = AdvHamiltonianMonteCarlo(vanilla_bnn, hyperparams_1, attack_type=AttackType.IBP)
 
     samples = hmc.train_mnist_vanilla(train_data)
@@ -58,6 +61,13 @@ def adversarial_robustness_experiment():
     acc_ibp = ibp_eval(hmc.net, hmc.hps, test_data, samples)
     print(f'Accuracy of ADV-HMC-DP with IBP on standard test set: {acc_ibp} %')
     print('---------------------------------------------------')
+
+    print('------------------- Uncertainty metrics -------------------')
+    auc_val = auroc(hmc.net, test_data, samples)
+    print(f'AUC: {auc_val}')
+    ece_val = ece(hmc.net, test_data, samples)
+    print(f'ECE: {ece_val}')
+    print('-----------------------------------------------------------')
 
 def membership_inference_dnn_experiment():
     # -------------- Hyperparams Values --------------

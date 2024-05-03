@@ -10,9 +10,9 @@ sys.path.append('../')
 
 from torch.utils.data import DataLoader, Dataset
 
+from common.datasets import GenericDataset
 from deterministic.vanilla_net import VanillaNetLinear
 from globals import TORCH_DEVICE
-from probabilistic.HMC.datasets import GenericDataset
 
 
 class MembershipInferenceAttack:
