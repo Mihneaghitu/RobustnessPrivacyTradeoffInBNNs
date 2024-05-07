@@ -92,7 +92,7 @@ def grid_search_adv_no_dp(attack_type: str):
 
         print(f"Attack type is {attack}")
         hmc = AdvHamiltonianMonteCarlo(VANILLA_BNN, hyperparams, attack)
-        posterior_samples = hmc.train_mnist_vanilla(train_data)
+        posterior_samples = hmc.train_bnn(train_data)
 
         #^ Test epsilon needs to be smaller than training epsilon
         hmc.hps.eps = grid_config.test_eps

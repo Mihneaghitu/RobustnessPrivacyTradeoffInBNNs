@@ -94,7 +94,6 @@ def ibp_eval(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, post
             batch_data_test, y_true_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
             batch_worst_case_logits = net.get_worst_case_logits(batch_data_test, y_true_test, hps.eps)
             batch_normalized_worst_case_logits = F.softmax(batch_worst_case_logits, dim=1)
-
             sample_logits = torch.cat((sample_logits, batch_normalized_worst_case_logits), dim=0)
 
         avg_worst_case_logits += sample_logits / len(posterior_samples)

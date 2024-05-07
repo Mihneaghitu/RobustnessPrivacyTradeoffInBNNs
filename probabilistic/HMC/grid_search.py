@@ -110,7 +110,7 @@ def grid_search_no_dp():
         hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 
         # Train and test
-        samples = hmc.train_mnist_vanilla(train_data)
+        samples = hmc.train_bnn(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
         global max_predictive_acc, optimal_samples, best_cnt
         if acc_with_average_logits > max_predictive_acc:
@@ -140,13 +140,13 @@ def grid_search_with_dp():
             batch_size=grid_config.batch_size,
             momentum_std=grid_config.momentum_std,
             run_dp=True,
-            grad_norm_bound=grid_config.grad_norm_bound,
-            dp_sigma=grid_config.dp_sigma
+            grad_clip_bound=grid_config.grad_norm_bound,
+            tau_g=grid_config.dp_sigma
         )
         hmc = HamiltonianMonteCarlo(VANILLA_BNN, hyperparams)
 
         # Train and test
-        samples = hmc.train_mnist_vanilla(train_data)
+        samples = hmc.train_bnn(train_data)
         acc_with_average_logits = hmc.test_hmc_with_average_logits(test_data, samples)
         global max_predictive_acc, optimal_samples, best_cnt
         if acc_with_average_logits > max_predictive_acc:

@@ -13,6 +13,7 @@ from common.dataset_utils import load_mnist
 from deterministic.attacks import (fgsm_test_set_attack, ibp_eval,
                                    pgd_test_set_attack)
 from deterministic.hyperparams import Hyperparameters
+from deterministic.uncertainty import auroc, ece
 from deterministic.vanilla_net import IbpAdversarialLoss, VanillaNetLinear
 from globals import TORCH_DEVICE
 
@@ -66,6 +67,7 @@ class PipelineDnn:
                         param.copy_(new_val)
                 # --------------------------------------------------------------------------------------
 
+                # shortcircuit for faster std training
                 self.net.zero_grad()
 
                 # --------------------- Adversarial forward pass and backprop step ---------------------
@@ -139,54 +141,18 @@ class PipelineDnn:
         return batch_data
 
     def __run_schedule(self, itr: int):
-        decay_epoch_start = 25
         itr_per_epoch = self.train_data_len // self.hps.batch_size
-        decay_itr_start = decay_epoch_start * itr_per_epoch
-        decay_itrs = (self.hps.num_epochs - decay_epoch_start) * itr_per_epoch
+        decay_itr_start = self.hps.decay_epoch_start * itr_per_epoch
+        decay_itrs = (self.hps.num_epochs - self.hps.decay_epoch_start) * itr_per_epoch
         delta_lr_decay = (1 - self.hps.lr_decay_magnitude) * self.hps.lr / decay_itrs
 
         if itr >= decay_itr_start:
             self.hps.lr -= delta_lr_decay
 
         if self.attack_type == AttackType.IBP:
-            warmup_epoch_start, warmup_epoch_end = 5, 15
-            warmup_itr_start, warmup_itr_end = warmup_epoch_start * itr_per_epoch, warmup_epoch_end * itr_per_epoch
-            num_warmup_itrs = warmup_itr_end - warmup_itr_start
-            delta_warmup_eps, delta_warmup_alpha = self.copy_eps / num_warmup_itrs, (1 - self.copy_alpha) / num_warmup_itrs
-            if warmup_itr_start <= itr < warmup_itr_end:
+            delta_warmup_eps = self.copy_eps / self.hps.eps_warmup_itrs
+            delta_warmup_alpha = (1 - self.copy_alpha) / self.hps.alpha_warmup_itrs
+            if self.hps.warmup_itr_start < itr <= self.hps.warmup_itr_start + self.hps.eps_warmup_itrs:
                 self.hps.eps += delta_warmup_eps
+            if self.hps.warmup_itr_start < itr <= self.hps.warmup_itr_start + self.hps.alpha_warmup_itrs:
                 self.hps.alpha -= delta_warmup_alpha
-
-
-def run_pipeline(test_only: bool = False, save_model: bool = False):
-    net = VanillaNetLinear().to(TORCH_DEVICE)
-    curr_dir = __file__.rsplit('/', 2)[0]
-    hyperparams = Hyperparameters(num_epochs=20,
-                                  lr=0.005,
-                                  batch_size=60,
-                                  criterion=torch.nn.CrossEntropyLoss(),
-                                  lr_decay_magnitude=0.25,
-                                  alpha=1,
-                                  eps=0.1)
-
-    pipeline = PipelineDnn(net, hyperparams, AttackType.FGSM)
-    if not test_only:
-        train, test = load_mnist()
-        pipeline.train_mnist_vanilla(train)
-        if save_model:
-            torch.save(pipeline.net.state_dict(), curr_dir + '/vanilla_network.pt')
-    else:
-        print("Testing only...")
-        net = VanillaNetLinear()
-        net.load_state_dict(torch.load(curr_dir + 'vanilla_network.pt'))
-
-    std_acc = pipeline.test_mnist_vanilla(test)
-    print(f'Standard accuracy of the network on the 10000 test images: {std_acc}%')
-    fgsm_test_set = fgsm_test_set_attack(net, hyperparams, test)
-    fgsm_acc = pipeline.test_mnist_vanilla(fgsm_test_set)
-    print(f'Accuracy of the network using FGSM adversarial test set: {fgsm_acc}%')
-    pgd_test_set = pgd_test_set_attack(net, hyperparams, test)
-    pgd_acc = pipeline.test_mnist_vanilla(pgd_test_set)
-    print(f'Accuracy of the network using PGD adversarial test set: {pgd_acc}%')
-    ibp_acc = ibp_eval(net, hyperparams, test)
-    print(f'Accuracy of the network using IBP adversarial test set: {ibp_acc}%')

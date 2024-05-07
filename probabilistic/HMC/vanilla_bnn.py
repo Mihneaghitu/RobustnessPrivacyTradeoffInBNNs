@@ -34,11 +34,11 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
         for sample in posterior_samples:
             self.set_params(sample)
             self.eval()
-            y_hat += self.forward(x)
             if last_layer_act is not None:
-                y_hat = last_layer_act(y_hat)
-
-        y_hat = torch.div(y_hat, torch.tensor(len(posterior_samples)))
+                y_hat += last_layer_act(self.forward(x))
+            else:
+                y_hat += self.forward(x)
+        y_hat = y_hat / len(posterior_samples)
 
         return y_hat
 
@@ -98,6 +98,8 @@ class VanillaBnnMnist(VanillaBnnLinear):
         # flatten the representation
         x_start = torch.nn.Flatten()(x)
         z_inf, z_sup = x_start - eps, x_start + eps
+        z_inf.requires_grad = True
+        z_sup.requires_grad = True
         z_inf = torch.clamp(z_inf, 0, 1)
         z_sup = torch.clamp(z_sup, 0, 1)
 
