@@ -10,7 +10,7 @@ class HyperparamsHMC:
     step_size: float
     lf_steps: int
     batch_size: int
-    criterion: Module = CrossEntropyLoss()
+    criterion: Module = CrossEntropyLoss(reduction='mean')
     num_chains: int = 1
     decay_epoch_start: int = 25
     lr_decay_magnitude: float = 0.1

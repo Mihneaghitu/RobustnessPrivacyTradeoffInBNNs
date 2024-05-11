@@ -36,7 +36,7 @@ def auroc(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torc
     assert np.isclose(auc_val.item(), alt_auroc, atol=1e-5)
     # ----------------------------------------------------------
 
-    return auc_val
+    return round(float(auc_val), 4)
 
 def ece(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torch.Tensor]) -> float:
     net.eval()
@@ -49,7 +49,7 @@ def ece(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torch.
     mc_ece = MulticlassCalibrationError(num_classes=10, n_bins=10, norm='l1')
     ece_val = mc_ece(mean_posterior_predictive_distribution, copy.deepcopy(test_set.targets).to(TORCH_DEVICE))
 
-    return ece_val
+    return round(float(ece_val), 4)
 
 def ibp_auc_and_ece(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torch.Tensor], eps: float) -> Tuple[float]:
     net.eval()

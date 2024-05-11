@@ -7,6 +7,7 @@ import torch.distributions as dist
 import torch.nn.functional as F
 import torchvision
 import wandb
+from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader
 
 sys.path.append('../../')
@@ -20,7 +21,6 @@ class HamiltonianMonteCarlo:
     def __init__(self, net: VanillaBnnLinear, hyperparameters: HyperparamsHMC) -> None:
         self.net = net
         self.hps = hyperparameters
-
 
     def train_bnn(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
@@ -105,7 +105,7 @@ class HamiltonianMonteCarlo:
             self.net.set_params(sample)
             self.net.eval()
             batch_size = 32
-            data_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
+            data_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
 
             sample_results = torch.tensor([]).to(TORCH_DEVICE)
             for data, _ in data_loader:
@@ -114,7 +114,6 @@ class HamiltonianMonteCarlo:
                 sample_results = torch.cat((sample_results, y_hat), dim=0)
             average_logits += sample_results / len(posterior_samples)
 
-        print(f"Len posterior samples: {len(posterior_samples)}")
         correct, total = 0, test_set.targets.size(0)
         for i in range(test_set.targets.size(0)):
             avg_logit = average_logits[i]
@@ -145,7 +144,10 @@ class HamiltonianMonteCarlo:
             ll_grad = param.grad
             prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
             prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
-            potential_energy_grad = self.__get_dp_grads(ll_grad) + prior_grad
+            potential_energy_grad = ll_grad + prior_grad
+            if self.hps.run_dp:
+                total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
+                potential_energy_grad += total_batch_noise / self.hps.batch_size
             p[idx] = self.net.update_param(p[idx], potential_energy_grad, eps)
 
         self.net.zero_grad()
@@ -162,7 +164,24 @@ class HamiltonianMonteCarlo:
         y_hat = self.net(batch_data)
         closs = criterion(y_hat, batch_target)
         self.net.zero_grad()
-        closs.backward()
+        if self.hps.run_dp:
+            params = {k: v.detach() for k, v in self.net.named_parameters()}
+            buffers = {k: v.detach() for k, v in self.net.named_buffers()}
+            compute_grad = grad(self.__compute_per_sample_loss)
+            compute_per_sample_grads = vmap(compute_grad, in_dims=(None, None, 0, 0))
+            per_sample_grads = compute_per_sample_grads(params, buffers, batch_data, batch_target)
+
+            per_layer_mean_clipped_grads = []
+            for batch_grads in per_sample_grads.values():
+                clip_per_sample_grad = vmap(self.__clip, in_dims=(0, None), out_dims=0)
+                clipped_per_sample_grads = clip_per_sample_grad(batch_grads, self.hps.grad_clip_bound)
+                per_layer_mean_clipped_grads.append(torch.mean(clipped_per_sample_grads, dim=0)) # average over samples
+            for idx, param in enumerate(self.net.parameters()):
+                param.grad = per_layer_mean_clipped_grads[idx]
+            # Now we are exactly in the same situation as in the non-DP case, i.e. with the mean batch gradients inside the
+            # parameters' grad attributes, with the exception that everything was clipped to ensure privacy
+        else:
+            closs.backward()
 
         return closs
 
@@ -191,22 +210,25 @@ class HamiltonianMonteCarlo:
         return potential_energy + kinetic_energy
 
     def __get_dp_energy(self, prop_q: list, prop_p: list, curr_q: list, curr_p: list, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+        compute_per_sample_loss = vmap(self.hps.criterion, in_dims=(0, 0), out_dims=0)
         # save the current parameters
         start_params = self.net.get_params()
 
         batch_data, batch_target = self.__get_batch(data_loader)
         self.net.set_params(curr_q)
-        nll_initial = self.hps.criterion(self.net(batch_data), batch_target)
+        initial_per_sample_nll = compute_per_sample_loss(self.net(batch_data), batch_target)
         self.net.set_params(prop_q)
-        nll_proposal = self.hps.criterion(self.net(batch_data), batch_target)
-        ll_ratio_batch = nll_proposal - nll_initial # log of ratio of likelihoods: ln(p(x | theta') / p(x | theta))
+        proposal_per_sample_nll = compute_per_sample_loss(self.net(batch_data), batch_target)
 
-        # clip the log likelihood ratio for privacy in the acceptance step
+        # get the norm of the difference between the current and the proposal parameters, needed for the clip bound
         diff = torch.tensor([]).to(TORCH_DEVICE)
         for c_q, p_q in zip(curr_q, prop_q):
             diff = torch.cat((diff, torch.flatten(p_q - c_q)))
-        ll_ratio_clipped_bound = self.hps.acceptance_clip_bound * torch.norm(diff)
-        clipped_ll_ratio_batch = self.__clip(ll_ratio_batch, ll_ratio_clipped_bound)
+
+        #* compute the clipping bound, which is ||theta_prop - theta_curr||_2 * b_l, then use a vmap to clip the ratio for every sample
+        clipping_bound_ll_ratio = self.hps.acceptance_clip_bound * torch.norm(diff)
+        per_sample_clipped_ll_ratio = vmap(lambda nom, denom: self.__clip(nom / denom, clipping_bound_ll_ratio), in_dims=(0, 0), out_dims=0)
+        clipped_ll_ratio_batch = torch.mean(per_sample_clipped_ll_ratio(proposal_per_sample_nll, initial_per_sample_nll))
 
         # compute the kinetic energy
         kinetic_energy_init = torch.tensor(0.0).to(TORCH_DEVICE)
@@ -224,7 +246,7 @@ class HamiltonianMonteCarlo:
         prior_ratio_batch = proposal_prior_prob - init_prior_prob
 
         # noise term
-        dp_sigma_acceptance = 2 * self.hps.tau_l * ll_ratio_clipped_bound
+        dp_sigma_acceptance = 2 * self.hps.tau_l * clipping_bound_ll_ratio
         psi = dist.Normal(0, dp_sigma_acceptance).sample().to(TORCH_DEVICE)
 
         # correction term
@@ -237,19 +259,16 @@ class HamiltonianMonteCarlo:
         self.net.set_params(start_params)
         return torch.exp(energy_delta_corrected) # not to have the acceptance probability in log space
 
-    def __get_dp_grads(self, ll_grad: torch.Tensor) -> torch.Tensor:
-        dp_grad = copy.deepcopy(ll_grad)
-        if self.hps.run_dp:
-            # clip the gradient norm (first term) and add noise (second term)
-            dp_grad = self.__clip(dp_grad, self.hps.grad_clip_bound)
-            dp_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(dp_grad.shape).to(TORCH_DEVICE)
-            # add the mean noise across the batch to grad_U
-            dp_grad += dp_noise / self.hps.batch_size
-
-        return dp_grad
-
     def __clip(self, x: torch.Tensor, bound: float) -> torch.Tensor:
-        return x * min(1, bound / torch.norm(x))
+        return x * torch.min(torch.tensor(1), bound / torch.norm(x))
+
+    def __compute_per_sample_loss(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch = sample.unsqueeze(0)
+        targets = target.unsqueeze(0)
+
+        predictions = functional_call(self.net, (params, buffers), (batch,))
+        loss = self.hps.criterion(predictions, targets)
+        return loss
 
     def __get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
         data = next(iter(data_loader))

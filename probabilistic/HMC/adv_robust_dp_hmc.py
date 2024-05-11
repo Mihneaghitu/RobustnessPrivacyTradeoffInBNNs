@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader
 
 sys.path.append('../../')
 
+from torch.func import functional_call, grad, vmap
+
 from common.attack_types import AttackType
 from globals import LOGGER_TYPE, TORCH_DEVICE, LoggerType
 from probabilistic.HMC.hyperparams import HyperparamsHMC
@@ -114,7 +116,7 @@ class AdvHamiltonianMonteCarlo:
                 end_energy = self.__get_energy(q, p, data_loader)
                 acceptance_prob = min(1, torch.exp(end_energy - initial_energy))
             else:
-                acceptance_prob = self.__get_dp_energy(q, p, current_q, current_p, data_loader)
+                acceptance_prob = min(1, self.__get_dp_energy(q, p, current_q, current_p, data_loader))
 
             print(f'Acceptance probability: {acceptance_prob}')
             if LOGGER_TYPE == LoggerType.WANDB:
@@ -182,7 +184,7 @@ class AdvHamiltonianMonteCarlo:
 
         return closs, closs_adv
 
-    def __advance_momentum(self, p: list, eps: float, adv=False) -> None:
+    def __advance_momentum(self, p: list, lr: float, adv=False) -> None:
         prior_loss = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
         prior_grad = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
         for idx, param in enumerate(self.net.parameters()):
@@ -190,8 +192,12 @@ class AdvHamiltonianMonteCarlo:
             if not adv:
                 prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
                 prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
+                prior_grad /= self.hps.alpha
+            if self.hps.run_dp:
+                total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
+                potential_energy_grad += total_batch_noise / self.hps.batch_size
             potential_energy_grad = self.__get_dp_grads(ll_grad) + prior_grad
-            p[idx] = self.net.update_param(p[idx], potential_energy_grad, eps)
+            p[idx] = self.net.update_param(p[idx], potential_energy_grad, lr)
 
         self.net.zero_grad()
 
@@ -214,7 +220,25 @@ class AdvHamiltonianMonteCarlo:
             y_hat = self.net(batch_data)
             closs = criterion(y_hat, batch_target)
 
-        closs.backward()
+        self.net.zero_grad()
+        if self.hps.run_dp:
+            params = {k: v.detach() for k, v in self.net.named_parameters()}
+            buffers = {k: v.detach() for k, v in self.net.named_buffers()}
+            compute_grad = grad(self.__compute_per_sample_loss)
+            compute_per_sample_grads = vmap(compute_grad, in_dims=(None, None, 0, 0))
+            per_sample_grads = compute_per_sample_grads(params, buffers, batch_data, batch_target)
+
+            per_layer_mean_clipped_grads = []
+            for batch_grads in per_sample_grads.values():
+                clip_per_sample_grad = vmap(self.__clip, in_dims=(0, None), out_dims=0)
+                clipped_per_sample_grads = clip_per_sample_grad(batch_grads, self.hps.grad_clip_bound)
+                per_layer_mean_clipped_grads.append(torch.mean(clipped_per_sample_grads, dim=0)) # average over samples
+            for idx, param in enumerate(self.net.parameters()):
+                param.grad = per_layer_mean_clipped_grads[idx]
+            # Now we are exactly in the same situation as in the non-DP case, i.e. with the mean batch gradients inside the
+            # parameters' grad attributes, with the exception that everything was clipped to ensure privacy
+        else:
+            closs.backward()
 
         return closs
 
@@ -282,22 +306,25 @@ class AdvHamiltonianMonteCarlo:
         return potential_energy + kinetic_energy
 
     def __get_dp_energy(self, prop_q: list, prop_p: list, curr_q: list, curr_p: list, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+        compute_per_sample_loss = vmap(self.hps.criterion, in_dims=(0, 0), out_dims=0)
         # save the current parameters
         start_params = self.net.get_params()
 
         batch_data, batch_target = self.__get_batch(data_loader)
         self.net.set_params(curr_q)
-        nll_initial = self.hps.criterion(self.net(batch_data), batch_target)
+        initial_per_sample_nll = compute_per_sample_loss(self.net(batch_data), batch_target)
         self.net.set_params(prop_q)
-        nll_proposal = self.hps.criterion(self.net(batch_data), batch_target)
-        ll_ratio_batch = nll_proposal - nll_initial # log of ratio of likelihoods: ln(p(x | theta') / p(x | theta))
+        proposal_per_sample_nll = compute_per_sample_loss(self.net(batch_data), batch_target)
 
-        # clip the log likelihood ratio for privacy in the acceptance step
+        # get the norm of the difference between the current and the proposal parameters, needed for the clip bound
         diff = torch.tensor([]).to(TORCH_DEVICE)
         for c_q, p_q in zip(curr_q, prop_q):
             diff = torch.cat((diff, torch.flatten(p_q - c_q)))
-        ll_ratio_clipped_bound = self.hps.acceptance_clip_bound * torch.norm(diff)
-        clipped_ll_ratio_batch = self.__clip(ll_ratio_batch, ll_ratio_clipped_bound)
+
+        #* compute the clipping bound, which is ||theta_prop - theta_curr||_2 * b_l, then use a vmap to clip the ratio for every sample
+        clipping_bound_ll_ratio = self.hps.acceptance_clip_bound * torch.norm(diff)
+        per_sample_clipped_ll_ratio = vmap(lambda nom, denom: self.__clip(nom / denom, clipping_bound_ll_ratio), in_dims=(0, 0), out_dims=0)
+        clipped_ll_ratio_batch = torch.mean(per_sample_clipped_ll_ratio(proposal_per_sample_nll, initial_per_sample_nll))
 
         # compute the kinetic energy
         kinetic_energy_init = torch.tensor(0.0).to(TORCH_DEVICE)
@@ -315,7 +342,7 @@ class AdvHamiltonianMonteCarlo:
         prior_ratio_batch = proposal_prior_prob - init_prior_prob
 
         # noise term
-        dp_sigma_acceptance = 2 * self.hps.tau_l * ll_ratio_clipped_bound
+        dp_sigma_acceptance = 2 * self.hps.tau_l * clipping_bound_ll_ratio
         psi = dist.Normal(0, dp_sigma_acceptance).sample().to(TORCH_DEVICE)
 
         # correction term
@@ -342,6 +369,14 @@ class AdvHamiltonianMonteCarlo:
     def __clip(self, x: torch.Tensor, bound: float) -> torch.Tensor:
         return x * min(1, bound / torch.norm(x))
 
+    def __compute_per_sample_loss(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch = sample.unsqueeze(0)
+        targets = target.unsqueeze(0)
+
+        predictions = functional_call(self.net, (params, buffers), (batch,))
+        loss = self.hps.criterion(predictions, targets)
+        return loss
+
 
     def __get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
         data = next(iter(data_loader))
@@ -350,11 +385,15 @@ class AdvHamiltonianMonteCarlo:
         return batch_data, batch_target
 
     def __run_schedule(self,curr_epoch: int) -> None:
+        decay_step = self.init_hps.step_size * (1 - self.hps.lr_decay_magnitude) / (self.hps.num_epochs - self.hps.decay_epoch_start)
+        if curr_epoch > self.hps.decay_epoch_start and self.hps.step_size > self.init_hps.step_size * self.hps.lr_decay_magnitude:
+            self.hps.step_size -= decay_step
+
         if self.attack_type in [AttackType.FGSM, AttackType.PGD] or self.hps.num_burnin_epochs == 0:
-            self.hps.eps, self.hps.alpha = self.init_hps.eps, self.init_hps.alpha
-            self.hps.step_size = self.init_hps.step_size if curr_epoch > self.hps.num_burnin_epochs else self.init_hps.warmup_step_size
+            self.hps.eps, self.hps.alpha, self.hps.step_size = self.init_hps.eps, self.init_hps.alpha, self.init_hps.step_size
             return
 
+        # Only for IBP
         delta_eps, delta_alpha = self.init_hps.eps, 1 - self.init_hps.alpha
         increment_eps, increment_alpha = delta_eps / self.hps.eps_warmup_epochs, delta_alpha / self.hps.alpha_warmup_epochs
 
@@ -366,10 +405,6 @@ class AdvHamiltonianMonteCarlo:
             self.hps.step_size = self.init_hps.warmup_step_size
         else:
             self.hps.step_size = self.init_hps.step_size
-
-        decay_step = self.init_hps.step_size * (1 - self.hps.lr_decay_magnitude) / (self.hps.num_epochs - self.hps.decay_epoch_start)
-        if curr_epoch > self.hps.decay_epoch_start and self.hps.step_size > self.init_hps.step_size * self.hps.lr_decay_magnitude:
-            self.hps.step_size -= decay_step
 
     def __init_params(self, from_trained: bool = False, path: str = None) -> List[torch.Tensor]:
         init_q = []

@@ -36,9 +36,9 @@ def auroc(net: VanillaNetLinear, test_set: Dataset) -> float:
     assert np.isclose(auc_val.item(), alt_auroc, atol=1e-5)
     # ----------------------------------------------------------
 
-    return auc_val
+    return round(float(auc_val.item()), 4)
 
-def ece(net: VanillaNetLinear, test_set: Dataset):
+def ece(net: VanillaNetLinear, test_set: Dataset) -> float:
     net.eval()
     data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
     y_pred = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
@@ -50,4 +50,4 @@ def ece(net: VanillaNetLinear, test_set: Dataset):
     mc_ece = MulticlassCalibrationError(num_classes=10, n_bins=10, norm='l1')
     ece_val = mc_ece(y_pred, copy.deepcopy(test_set.targets).to(TORCH_DEVICE))
 
-    return ece_val
+    return round(float(ece_val.item()), 4)
