@@ -42,7 +42,6 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
 
         return y_hat
 
-
     def get_worst_case_logits(self, x: torch.Tensor, y: torch.Tensor, eps: float) -> torch.Tensor:
         z_inf, z_sup = self.ibp_forward(x, eps)
 
@@ -98,8 +97,6 @@ class VanillaBnnMnist(VanillaBnnLinear):
         # flatten the representation
         x_start = torch.nn.Flatten()(x)
         z_inf, z_sup = x_start - eps, x_start + eps
-        z_inf.requires_grad = True
-        z_sup.requires_grad = True
         z_inf = torch.clamp(z_inf, 0, 1)
         z_sup = torch.clamp(z_sup, 0, 1)
 

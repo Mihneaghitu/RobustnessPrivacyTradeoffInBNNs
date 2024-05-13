@@ -193,10 +193,12 @@ class AdvHamiltonianMonteCarlo:
                 prior_loss = prior_loss + torch.neg(torch.mean(dist.Normal(self.hps.prior_mu, self.hps.prior_std).log_prob(param)))
                 prior_grad = torch.autograd.grad(outputs=prior_loss, inputs=param)[0]
                 prior_grad /= self.hps.alpha
-            if self.hps.run_dp:
-                total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
-                potential_energy_grad += total_batch_noise / self.hps.batch_size
             potential_energy_grad = self.__get_dp_grads(ll_grad) + prior_grad
+            if self.hps.run_dp:
+                # TODO: this might need to be the same sample for a batch, not 2 different ones for standard and adv
+                factor = self.hps.alpha if not adv else (1 - self.hps.alpha)
+                total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
+                potential_energy_grad += factor * total_batch_noise / self.hps.batch_size
             p[idx] = self.net.update_param(p[idx], potential_energy_grad, lr)
 
         self.net.zero_grad()
@@ -222,9 +224,16 @@ class AdvHamiltonianMonteCarlo:
 
         self.net.zero_grad()
         if self.hps.run_dp:
-            params = {k: v.detach() for k, v in self.net.named_parameters()}
-            buffers = {k: v.detach() for k, v in self.net.named_buffers()}
-            compute_grad = grad(self.__compute_per_sample_loss)
+            params, buffers = None, None
+            compute_grad = None
+            if adv:
+                params = {k: v.detach() for k, v in self.adv_criterion.named_parameters()}
+                buffers = {k: v.detach() for k, v in self.adv_criterion.named_buffers()}
+                compute_grad = grad(self.__compute_per_sample_loss_adv)
+            else:
+                params = {k: v.detach() for k, v in self.net.named_parameters()}
+                buffers = {k: v.detach() for k, v in self.net.named_buffers()}
+                compute_grad = grad(self.__compute_per_sample_loss_std)
             compute_per_sample_grads = vmap(compute_grad, in_dims=(None, None, 0, 0))
             per_sample_grads = compute_per_sample_grads(params, buffers, batch_data, batch_target)
 
@@ -367,9 +376,9 @@ class AdvHamiltonianMonteCarlo:
         return dp_grad
 
     def __clip(self, x: torch.Tensor, bound: float) -> torch.Tensor:
-        return x * min(1, bound / torch.norm(x))
+        return x * torch.min(torch.tensor(1), bound / torch.norm(x))
 
-    def __compute_per_sample_loss(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def __compute_per_sample_loss_std(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         batch = sample.unsqueeze(0)
         targets = target.unsqueeze(0)
 
@@ -377,6 +386,12 @@ class AdvHamiltonianMonteCarlo:
         loss = self.hps.criterion(predictions, targets)
         return loss
 
+    def __compute_per_sample_loss_adv(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch = sample.unsqueeze(0)
+        targets = target.unsqueeze(0)
+
+        loss = functional_call(self.adv_criterion, (params, buffers), (batch, targets))
+        return loss
 
     def __get_batch(self, data_loader: torch.utils.data.DataLoader) -> Tuple[torch.Tensor, torch.Tensor]:
         data = next(iter(data_loader))

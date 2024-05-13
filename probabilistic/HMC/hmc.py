@@ -21,6 +21,7 @@ class HamiltonianMonteCarlo:
     def __init__(self, net: VanillaBnnLinear, hyperparameters: HyperparamsHMC) -> None:
         self.net = net
         self.hps = hyperparameters
+        self.init_hps = copy.deepcopy(hyperparameters)
 
     def train_bnn(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
@@ -138,7 +139,7 @@ class HamiltonianMonteCarlo:
     # -------------------- Helper functions -------------------
     # ---------------------------------------------------------
 
-    def __p_update(self, p: list, eps: float) -> None:
+    def __p_update(self, p: list, lr: float) -> None:
         prior_loss = torch.tensor(0.0).requires_grad_(True).to(TORCH_DEVICE)
         for idx, param in enumerate(self.net.parameters()):
             ll_grad = param.grad
@@ -148,7 +149,7 @@ class HamiltonianMonteCarlo:
             if self.hps.run_dp:
                 total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
                 potential_energy_grad += total_batch_noise / self.hps.batch_size
-            p[idx] = self.net.update_param(p[idx], potential_energy_grad, eps)
+            p[idx] = self.net.update_param(p[idx], potential_energy_grad, lr)
 
         self.net.zero_grad()
 

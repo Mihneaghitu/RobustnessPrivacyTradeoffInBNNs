@@ -9,11 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from common.attack_types import AttackType
-from common.dataset_utils import load_mnist
-from deterministic.attacks import (fgsm_test_set_attack, ibp_eval,
-                                   pgd_test_set_attack)
 from deterministic.hyperparams import Hyperparameters
-from deterministic.uncertainty import auroc, ece
 from deterministic.vanilla_net import IbpAdversarialLoss, VanillaNetLinear
 from globals import TORCH_DEVICE
 
@@ -22,6 +18,7 @@ class PipelineDnn:
     def __init__(self, net: VanillaNetLinear, hyperparams: Hyperparameters, attack_type: AttackType = AttackType.FGSM) -> None:
         self.net = net
         self.hps = hyperparams
+        self.init_hps = copy.deepcopy(hyperparams)
         self.attack_type = attack_type
         self.adv_generator, self.adv_criterion = None, self.hps.criterion
         match attack_type:
@@ -29,7 +26,7 @@ class PipelineDnn:
                 self.adv_generator = self.__gen_fgsm_attack
             case AttackType.PGD:
                 self.adv_generator = self.__gen_pgd_attack
-            case IBP:
+            case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_attack
                 self.adv_criterion = IbpAdversarialLoss(self.net, self.hps.criterion, self.hps.eps)
                 # for warmup
@@ -53,8 +50,9 @@ class PipelineDnn:
         itr = 1
         for epoch in range(self.hps.num_epochs):
             losses  = []
+            self.__run_lr_schedule(epoch + 1)
             for _, data in enumerate(data_loader):
-                self.__run_schedule(itr)
+                self.__run_warmup_schedule(itr)
                 self.net.zero_grad()
                 # ---------------------- Standard forward pass and backprop step ----------------------
                 batch_data_train, batch_target_train = data[0].to(TORCH_DEVICE), data[1].to(TORCH_DEVICE)
@@ -140,15 +138,7 @@ class PipelineDnn:
     def __gen_ibp_attack(self, batch_data: torch.Tensor, _: torch.Tensor) -> torch.Tensor:
         return batch_data
 
-    def __run_schedule(self, itr: int):
-        itr_per_epoch = self.train_data_len // self.hps.batch_size
-        decay_itr_start = self.hps.decay_epoch_start * itr_per_epoch
-        decay_itrs = (self.hps.num_epochs - self.hps.decay_epoch_start) * itr_per_epoch
-        delta_lr_decay = (1 - self.hps.lr_decay_magnitude) * self.hps.lr / decay_itrs
-
-        if itr >= decay_itr_start:
-            self.hps.lr -= delta_lr_decay
-
+    def __run_warmup_schedule(self, itr: int):
         if self.attack_type == AttackType.IBP:
             delta_warmup_eps = self.copy_eps / self.hps.eps_warmup_itrs
             delta_warmup_alpha = (1 - self.copy_alpha) / self.hps.alpha_warmup_itrs
@@ -156,3 +146,8 @@ class PipelineDnn:
                 self.hps.eps += delta_warmup_eps
             if self.hps.warmup_itr_start < itr <= self.hps.warmup_itr_start + self.hps.alpha_warmup_itrs:
                 self.hps.alpha -= delta_warmup_alpha
+
+    def __run_lr_schedule(self, epoch: int):
+        if epoch > self.hps.decay_epoch_start:
+            delta = (1 - self.hps.lr_decay_magnitude) * self.hps.lr / (self.hps.num_epochs - self.hps.decay_epoch_start)
+            self.hps.lr -= delta

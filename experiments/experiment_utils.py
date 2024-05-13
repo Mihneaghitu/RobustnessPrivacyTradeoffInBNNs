@@ -1,5 +1,6 @@
 import os
 import sys
+from dataclasses import asdict
 from typing import List, Tuple, Union
 
 import torch
@@ -62,7 +63,8 @@ def run_experiment_sgd(net: VanillaNetLinear, train_data: Dataset, hps: Hyperpar
     return pipeline
 
 def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCarlo], test_data: Dataset, posterior_samples: torch.Tensor,
-                        testing_eps: float = 0.1, write_results: bool = False, model_name: str = None, dset_name: str = None) -> None:
+                        testing_eps: float = 0.1, write_results: bool = False, model_name: str = None, dset_name: str = None,
+                        for_adv_comparison: bool = True) -> None:
     hmc.hps.eps = testing_eps
 
     # -------------------- Accuracy metrics --------------------
@@ -105,11 +107,12 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
         ibp_acc = round(float(ibp_acc) / 100, 4)
         results = {"STD_ACC": std_acc, "FGSM_ACC": fgsm_acc, "PGD_ACC": pgd_acc, "IBP_ACC": ibp_acc,
                    "IN_DISTRIB_AUROC": in_distrib_auroc, "IN_DISTRIB_ECE": in_distrib_ece, "OOD_AUROC": ood_auroc, "OOD_ECE": ood_ece}
-        save_results(dset_name, model_name, results)
-
+        save_results(dset_name, model_name, results, for_adv_comparison)
+        hmc.hps = hmc.init_hps # Reset the hyperparameters to the initial values
+        save_config(hmc.hps, model_name, dset_name, for_adv_comparison)
 
 def compute_metrics_sgd(pipeline: PipelineDnn, test_data: Dataset, testing_eps: float = 0.1,
-                        write_results: bool = False, dset_name: str = None) -> None:
+                        write_results: bool = False, dset_name: str = None, for_adv_comparison: bool = True) -> None:
     pipeline.hps.eps = testing_eps
 
     # -------------------- Accuracy metrics --------------------
@@ -151,7 +154,26 @@ def compute_metrics_sgd(pipeline: PipelineDnn, test_data: Dataset, testing_eps: 
         ibp_acc = round(float(ibp_acc) / 100, 4)
         results = {"STD_ACC": std_acc, "FGSM_ACC": fgsm_acc, "PGD_ACC": pgd_acc, "IBP_ACC": ibp_acc,
                    "IN_DISTRIB_AUROC": in_distrib_auroc, "IN_DISTRIB_ECE": in_distrib_ece, "OOD_AUROC": ood_auroc, "OOD_ECE": ood_ece}
-        save_results(dset_name, "SGD", results)
+        save_results(dset_name, "SGD", results, for_adv_comparison)
+        pipeline.hps = pipeline.init_hps # Reset the hyperparameters to the initial values
+        save_config(pipeline.hps, "SGD", dset_name, for_adv_comparison)
+
+def save_config(hps: Union[Hyperparameters, HyperparamsHMC], model_name: str, dset_name: str, for_adv_comparison: bool = True) -> None:
+    config_file = __file__.rsplit('/', 1)[0] + "/"
+    if for_adv_comparison:
+        config_file += "configs_adv.yaml"
+    else:
+        config_file += "configs_all.yaml"
+
+    current_config = asdict(hps)
+    current_config["criterion"] = current_config["criterion"].__class__.__name__
+    all_configs = {}
+    with open(config_file, 'r', encoding="utf-8") as f:
+        all_configs = yaml.safe_load(f)
+        all_configs[dset_name][model_name] = current_config
+
+    with open(config_file, 'w', encoding="utf-8") as f:
+        yaml.dump(all_configs, f, sort_keys=False)
 
 def save_results(dset_name: str, model_name: str, results: dict, for_adv_comparison: bool = True) -> None:
     results_file = __file__.rsplit('/', 1)[0] + "/"

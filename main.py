@@ -1,12 +1,10 @@
 import torch
-import yaml
 
 from common.attack_types import AttackType
 from common.dataset_utils import get_marginal_distributions, load_mnist
 from common.datasets import GenericDataset
 from deterministic.hyperparams import Hyperparameters
 from deterministic.membership_inference_dnn import MembershipInferenceAttack
-from deterministic.pipeline import PipelineDnn
 from deterministic.vanilla_net import VanillaNetLinear
 from experiments.experiment_utils import (compute_metrics_hmc,
                                           compute_metrics_sgd,
@@ -25,19 +23,19 @@ def main():
     #* Seed is set in globals.py
     # membership_inference_dnn_experiment()
     # membership_inference_bnn_experiment()
-    adv_dp_experiment(write_results=True, save_model=True)
-    # hmc_dp_experiment(write_results=True)
-    # dnn_experiment(save_model=False, write_results=False)
+    adv_dp_experiment(write_results=True, save_model=False, for_adv_comparison=False)
+    # hmc_dp_experiment(write_results=True, for_adv_comparison=False)
+    # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
     return 0
 
-def adv_dp_experiment(write_results: bool = False, save_model: bool = False):
+def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = True, save_model: bool = False):
     print(f"Using device: {TORCH_DEVICE}")
     vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     train_data, test_data = load_mnist()
-    hyperparams = HyperparamsHMC(num_epochs=70, num_burnin_epochs=0, step_size=4e-3, warmup_step_size=0.75, lf_steps=120,
-                                 batch_size=500, momentum_std=0.002, alpha=0.4, eps=0.1, decay_epoch_start=20,
-                                 lr_decay_magnitude=0.1, eps_warmup_epochs=0, alpha_warmup_epochs=0, run_dp=False,
-                                 grad_clip_bound=0.25, acceptance_clip_bound=0.25, tau_g=0.5, tau_l=0.5)
+    hyperparams = HyperparamsHMC(num_epochs=40, num_burnin_epochs=20, step_size=1e-2, warmup_step_size=0.15, lf_steps=120,
+                                 batch_size=500, num_chains=1, momentum_std=0.003, alpha=0.9875, eps=0.1, decay_epoch_start=25,
+                                 lr_decay_magnitude=1/5, eps_warmup_epochs=10, alpha_warmup_epochs=20, run_dp=True,
+                                 grad_clip_bound=1, acceptance_clip_bound=1, tau_g=0.05, tau_l=0.05)
 
     attack_type = AttackType.IBP
     model_name = "ADV-DP-HMC" if hyperparams.run_dp else "ADV-HMC"
@@ -53,30 +51,30 @@ def adv_dp_experiment(write_results: bool = False, save_model: bool = False):
         fname = "ibp_" + fname
     fname = fname if save_model else None
 
-    hmc, posterior_samples = run_experiment_adv_hmc(vanilla_bnn, train_data, hyperparams, attack_type, fname, init_from_trained=True)
+    hmc, posterior_samples = run_experiment_adv_hmc(vanilla_bnn, train_data, hyperparams, attack_type, fname, init_from_trained=False)
     compute_metrics_hmc(hmc ,test_data, posterior_samples, testing_eps=0.075, write_results=write_results,
-                        model_name=model_name, dset_name="MNIST")
+                        model_name=model_name, dset_name="MNIST", for_adv_comparison=for_adv_comparison)
 
 
-def hmc_dp_experiment(write_results: bool = False, save_model: bool = False):
+def hmc_dp_experiment(write_results: bool = False, for_adv_comparison: bool = True, save_model: bool = False):
     train_data, test_data = load_mnist()
     print("Training Bayesian Neural Network using HMC...")
     target_network = VanillaBnnMnist().to(TORCH_DEVICE)
-    hyperparams = HyperparamsHMC(num_epochs=100, num_burnin_epochs=25, step_size=0.02, lf_steps=100,
-                                 batch_size=512, momentum_std=0.01, decay_epoch_start=25, lr_decay_magnitude=0.05,
-                                 run_dp=False, grad_clip_bound=2, acceptance_clip_bound=0.5, tau_g=0.5, tau_l=0.5)
+    hyperparams = HyperparamsHMC(num_epochs=70, num_burnin_epochs=35, step_size=0.018, lf_steps=120,
+                                 batch_size=500, momentum_std=0.01, decay_epoch_start=35, lr_decay_magnitude=0.1,
+                                 run_dp=True, grad_clip_bound=0.4, acceptance_clip_bound=0.4, tau_g=0.15, tau_l=0.15)
 
     fname = f'''hmc_mnist{"_dp" if hyperparams.run_dp else ""}.pt''' if save_model else None
     hmc, posterior_samples = run_experiment_hmc(target_network, train_data, hyperparams, save_file_name=fname)
     model_name = "HMC-DP" if hyperparams.run_dp else "HMC"
     compute_metrics_hmc(hmc ,test_data, posterior_samples, testing_eps=0.075, write_results=write_results,
-                        model_name=model_name, dset_name="MNIST")
+                        model_name=model_name, dset_name="MNIST", for_adv_comparison=for_adv_comparison)
 
 def dnn_experiment(save_model: bool = False, write_results: bool = False):
     train, test = load_mnist()
     net = VanillaNetLinear().to(TORCH_DEVICE)
-    hyperparams = Hyperparameters(num_epochs=12, lr=0.01, batch_size=60, lr_decay_magnitude=0.1, decay_epoch_start=15,
-                                  alpha=0.5, eps=0.1, eps_warmup_itrs=4000, alpha_warmup_itrs=4000, warmup_itr_start=3000)
+    hyperparams = Hyperparameters(num_epochs=25, lr=0.01, batch_size=60, lr_decay_magnitude=0.1, decay_epoch_start=10,
+                                  alpha=0.5, eps=0.1, eps_warmup_itrs=6000, alpha_warmup_itrs=6000, warmup_itr_start=4000)
 
     fname = "vanilla_network.pt" if save_model else None
     pipeline = run_experiment_sgd(net, train, hyperparams, AttackType.IBP, save_file_name=fname)
