@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 sys.path.append("../")
 
 from common.attack_types import AttackType
-from common.dataset_utils import load_fashion_mnist
+from common.dataset_utils import load_fashion_mnist, load_mnist
 from deterministic.attacks import \
     fgsm_test_set_attack as fgsm_test_set_attack_dnn
 from deterministic.attacks import ibp_eval as ibp_eval_dnn
@@ -20,14 +20,18 @@ from deterministic.hyperparams import Hyperparameters
 from deterministic.pipeline import PipelineDnn
 from deterministic.uncertainty import auroc as auroc_dnn
 from deterministic.uncertainty import ece as ece_dnn
+from deterministic.uncertainty import \
+    ood_detection_auc_and_ece as detect_ood_dnn
 from deterministic.vanilla_net import VanillaNetLinear
+from globals import (MODEL_NAMES_ADV, MODEL_NAMES_ADV_DP, ROOT_FNAMES_ADV,
+                     ROOT_FNAMES_ADV_DP, TORCH_DEVICE, AdvDpModel, AdvModel)
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import (fgsm_predictive_distrib_attack,
                                        ibp_eval, pgd_predictive_distrib_attack)
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
-from probabilistic.HMC.uncertainty import auroc, ece
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear
+from probabilistic.HMC.uncertainty import auroc, ece, ood_detection_auc_and_ece
+from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear, VanillaBnnMnist
 
 
 def run_experiment_hmc(net: VanillaBnnLinear, train_data: Dataset, hps: HyperparamsHMC,
@@ -58,7 +62,7 @@ def run_experiment_sgd(net: VanillaNetLinear, train_data: Dataset, hps: Hyperpar
     if save_file_name is not None:
         save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/"
         os.makedirs(save_dir, exist_ok=True)
-        torch.save(pipeline.net.state_dict(), save_dir + save_file_name + ".npy")
+        torch.save(pipeline.net.state_dict(), save_dir + save_file_name) # it comes as argument as ".pt" already
 
     return pipeline
 
@@ -90,8 +94,7 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
     in_distrib_auroc = auroc(hmc.net, test_data, posterior_samples)
     in_distrib_ece = ece(hmc.net, test_data, posterior_samples)
     out_of_distrib_test_data = load_fashion_mnist()[1]
-    ood_auroc = auroc(hmc.net, out_of_distrib_test_data, posterior_samples)
-    ood_ece = ece(hmc.net, out_of_distrib_test_data, posterior_samples)
+    ood_auroc, ood_ece = ood_detection_auc_and_ece(hmc.net, test_data, out_of_distrib_test_data, posterior_samples)
 
     print('------------------- Uncertainty metrics -------------------')
     print(f'STD AUC: {in_distrib_auroc}')
@@ -137,8 +140,7 @@ def compute_metrics_sgd(pipeline: PipelineDnn, test_data: Dataset, testing_eps: 
     out_of_distrib_test = load_fashion_mnist()[1]
     in_distrib_auroc = auroc_dnn(pipeline.net, test_data)
     in_distrib_ece = ece_dnn(pipeline.net, test_data)
-    ood_auroc = auroc_dnn(pipeline.net, out_of_distrib_test)
-    ood_ece = ece_dnn(pipeline.net, out_of_distrib_test)
+    ood_auroc, ood_ece = detect_ood_dnn(pipeline.net, test_data, out_of_distrib_test)
 
     print('------------------- Uncertainty metrics -------------------')
     print(f'STD AUC: {in_distrib_auroc}')
@@ -202,3 +204,59 @@ def test_ibp_acc_from_file(hmc: AdvHamiltonianMonteCarlo, test_data: Dataset, fn
             accs.append(round(float(curr_acc) / 100, 4))
 
     return accs
+
+def test_hmc_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDpModel], dset_name="MNIST", testing_eps: float = 0.1):
+    for_adv_comparison = isinstance(experiment_type, AdvModel)
+
+    assert experiment_type != AdvModel.SGD or experiment_type != AdvDpModel.SGD, "Only HMC-BNN models are supported for this function"
+
+    curr_dir = __file__.rsplit('/', 1)[0]
+    config_file = curr_dir + ("/configs_adv.yaml" if for_adv_comparison else "/configs_all.yaml")
+    posterior_samples_file = curr_dir + "/posterior_samples/"
+    model_name = None
+    if for_adv_comparison:
+        posterior_samples_file += ROOT_FNAMES_ADV[experiment_type.value] + dset_name.lower() + ".npy"
+        model_name = MODEL_NAMES_ADV[experiment_type.value]
+    else:
+        posterior_samples_file += ROOT_FNAMES_ADV_DP[experiment_type.value] + dset_name.lower() + ".npy"
+        model_name = MODEL_NAMES_ADV_DP[experiment_type.value]
+
+    with open(config_file, 'r', encoding="utf-8") as f:
+        all_configs = yaml.safe_load(f)
+    hps_config = all_configs[dset_name][model_name]
+    # This is saved as a string, but inside the class it's a module, so to avoid any weirdness and because it's optional anyways, we remove it
+    del hps_config['criterion']
+    hps, net = HyperparamsHMC(**hps_config), None
+    posterior_samples = torch.load(posterior_samples_file)
+    if dset_name == "MNIST":
+        # this can be a new object because the parameters are the posterior samples anyways
+        net = VanillaBnnMnist().to(TORCH_DEVICE)
+    hmc = AdvHamiltonianMonteCarlo(net, hps)
+
+    compute_metrics_hmc(hmc, test_set, posterior_samples, testing_eps=testing_eps, write_results=True, model_name=model_name,
+                        dset_name=dset_name, for_adv_comparison=for_adv_comparison)
+
+def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDpModel], dset_name="MNIST", testing_eps: float = 0.1):
+    for_adv_comparison = isinstance(experiment_type, AdvModel)
+
+    assert experiment_type == AdvModel.SGD or experiment_type == AdvDpModel.SGD, "Only DNN models are supported for this function"
+
+    curr_dir = __file__.rsplit('/', 1)[0]
+    config_file = curr_dir + ("/configs_adv.yaml" if for_adv_comparison else "/configs_all.yaml")
+    net_file = curr_dir + "/posterior_samples/vanilla_network.pt"
+    model_name = "SGD"
+
+    with open(config_file, 'r', encoding="utf-8") as f:
+        all_configs = yaml.safe_load(f)
+    hps_config = all_configs[dset_name][model_name]
+
+    # This is saved as a string, but inside the class it's a module, so to avoid any weirdness and because it's optional anyways, we remove it
+    del hps_config['criterion']
+    hps, net = Hyperparameters(**hps_config), VanillaNetLinear().to(TORCH_DEVICE)
+    net.load_state_dict(torch.load(net_file))
+    pipeline = PipelineDnn(net, hps)
+
+    compute_metrics_sgd(pipeline, test_set, testing_eps=testing_eps, write_results=True, dset_name=dset_name, for_adv_comparison=for_adv_comparison)
+
+# test_hmc_from_file(load_mnist()[1], AdvModel.HMC)
+test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD)

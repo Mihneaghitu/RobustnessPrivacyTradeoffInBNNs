@@ -19,7 +19,6 @@ from common.datasets import GenericDataset
 def load_mnist() -> Tuple[torchvision.datasets.MNIST, torchvision.datasets.MNIST]:
     curr_dir = __file__.rsplit('/', 2)[0]
     os.chdir(curr_dir)
-    print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor()
     ])
@@ -31,7 +30,6 @@ def load_mnist() -> Tuple[torchvision.datasets.MNIST, torchvision.datasets.MNIST
 def load_fashion_mnist() -> Tuple[torchvision.datasets.FashionMNIST, torchvision.datasets.FashionMNIST]:
     curr_dir = __file__.rsplit('/', 2)[0]
     os.chdir(curr_dir)
-    print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor()
     ])
@@ -43,7 +41,6 @@ def load_fashion_mnist() -> Tuple[torchvision.datasets.FashionMNIST, torchvision
 def load_cifar10() -> Tuple[torchvision.datasets.CIFAR10, torchvision.datasets.CIFAR10]:
     curr_dir = __file__.rsplit('/', 2)[0]
     os.chdir(curr_dir)
-    print(f"Current directory: {curr_dir}")
     transform = transforms.Compose([
         transforms.ToTensor(),
     ])
@@ -55,7 +52,6 @@ def load_cifar10() -> Tuple[torchvision.datasets.CIFAR10, torchvision.datasets.C
 def load_organsmnist() -> Tuple[OrganSMNIST, OrganSMNIST]:
     curr_dir = __file__.rsplit('/', 2)[0]
     os.chdir(curr_dir)
-    print(f"Current directory: {curr_dir}")
     func_input = lambda x: torch.swapaxes(torchvision.transforms.functional.to_tensor(x), 0, 1)
     func_output = lambda x: torch.from_numpy(x).squeeze(1)
     train_data = OrganSMNIST(root="./data", split="train", download=True)

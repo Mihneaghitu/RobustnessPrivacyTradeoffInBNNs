@@ -11,6 +11,7 @@ from torchmetrics.classification import (MulticlassAUROC,
 
 sys.path.append('../../')
 
+from sklearn.calibration import calibration_curve
 from sklearn.metrics import roc_auc_score
 
 from globals import TORCH_DEVICE
@@ -50,6 +51,32 @@ def ece(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torch.
     ece_val = mc_ece(mean_posterior_predictive_distribution, copy.deepcopy(test_set.targets).to(TORCH_DEVICE))
 
     return round(float(ece_val), 4)
+
+def ood_detection_auc_and_ece(net: VanillaBnnLinear, id_data: Dataset, ood_data: Dataset, posterior_samples: List[torch.Tensor]) -> Tuple[float, float]:
+    net.eval()
+    id_data_loader = DataLoader(id_data, batch_size=1000, shuffle=False)
+    ood_data_loader = DataLoader(ood_data, batch_size=1000, shuffle=False)
+    id_mean_ppd = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
+    ood_mean_ppd = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
+    for (id_batch_data, _), (ood_batch_data, _) in zip(id_data_loader, ood_data_loader):
+        id_batch_mean_ppd = net.hmc_forward(id_batch_data.to(TORCH_DEVICE), posterior_samples, lambda x: F.softmax(x, dim=1))
+        ood_batch_mean_ppd = net.hmc_forward(ood_batch_data.to(TORCH_DEVICE), posterior_samples, lambda x: F.softmax(x, dim=1))
+        id_mean_ppd = torch.cat((id_mean_ppd, id_batch_mean_ppd), dim=0)
+        ood_mean_ppd = torch.cat((ood_mean_ppd, ood_batch_mean_ppd), dim=0)
+
+    id_pred_probs, ood_pred_probs = torch.max(id_mean_ppd, dim=1).values, torch.max(ood_mean_ppd, dim=1).values
+    y_pred = torch.cat((id_pred_probs, ood_pred_probs), dim=0)
+    #! I.e. the softmax probabilities of the predicted classes should be close to 1 for in-distribution data and close to 0 for OOD data
+    y_true = torch.cat((torch.ones_like(id_pred_probs), torch.zeros_like(ood_pred_probs)), dim=0).to(TORCH_DEVICE, dtype=torch.int64)
+    y_pred, y_true = y_pred.clone().detach().cpu().numpy(), y_true.clone().detach().cpu().numpy()
+
+    # ---- AUROC ----
+    auc_val = roc_auc_score(y_true, y_pred, average='macro')
+    # ---- ECE ----
+    ece_val = calibration_curve(y_true, y_pred, n_bins=10, strategy='uniform')[1].mean()
+
+    return round(float(auc_val), 4), round(float(ece_val), 4)
+
 
 def ibp_auc_and_ece(net: VanillaBnnLinear, test_set: Dataset, posterior_samples: List[torch.Tensor], eps: float) -> Tuple[float]:
     net.eval()

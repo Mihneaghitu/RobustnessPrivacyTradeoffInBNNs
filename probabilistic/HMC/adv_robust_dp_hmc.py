@@ -38,8 +38,8 @@ class AdvHamiltonianMonteCarlo:
             case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_adv_examples
                 self.adv_criterion = IbpAdversarialLoss(net, torch.nn.CrossEntropyLoss(), self.hps.eps)
-                assert self.hps.eps_warmup_epochs <= self.hps.num_burnin_epochs
-                assert self.hps.alpha_warmup_epochs <= self.hps.num_burnin_epochs
+                assert self.hps.eps_warmup_epochs <= self.hps.num_burnin_epochs, "IBP requires that eps_warmup_epochs <= num_burnin_epochs"
+                assert self.hps.alpha_warmup_epochs <= self.hps.num_burnin_epochs, "IBP requires that alpha_warmup_epochs <= num_burnin_epochs"
         self.hps.eps, self.hps.alpha = 0, 1
 
     def train_with_restarts(self, train_set: torchvision.datasets.mnist, first_chain_from_trained: bool = False) -> List[torch.tensor]:
