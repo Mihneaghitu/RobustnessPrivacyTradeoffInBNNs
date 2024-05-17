@@ -17,9 +17,9 @@ from globals import LOGGER_TYPE, TORCH_DEVICE
 
 
 def fgsm_test_set_attack(net: VanillaNetLinear, hps: Hyperparameters, test_set: Dataset) -> Dataset:
-    data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
     net.eval()
-    adv_grads = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
+    data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
+    adv_examples = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
 
     for batch_data, batch_target in data_loader:
         batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE), batch_target.to(TORCH_DEVICE)
@@ -27,51 +27,43 @@ def fgsm_test_set_attack(net: VanillaNetLinear, hps: Hyperparameters, test_set: 
         y_hat_test = net(batch_data_test)
         loss = hps.criterion(y_hat_test, batch_target_test)
         loss.backward()
-        batch_adv_grads = copy.deepcopy(batch_data_test.grad.data)
-        adv_grads = torch.cat((adv_grads, batch_adv_grads), dim=0)
+        data_grad = copy.deepcopy(batch_data_test.grad.data)
+        curr_adv_example = torch.clamp(batch_data_test + hps.eps * data_grad.sign(), 0, 1)
+        adv_examples = torch.cat((adv_examples, curr_adv_example), dim=0)
         net.zero_grad()
-        batch_data_test.grad.zero_()
     # squeeze dim 1 because image is of shape [1, 28, 28] where 1 is the number of channels, so batch_adv_examples is of shape [batch_size, 1, 28, 28]
-    adv_grads = adv_grads.squeeze(dim=1)
+    adv_examples = adv_examples.squeeze(dim=1)
 
-    adv_inputs = copy.deepcopy(test_set.data.to(TORCH_DEVICE) + hps.eps * torch.sign(adv_grads))
-    adv_inputs = torch.clamp(adv_inputs, 0, 1)
     adv_labels = copy.deepcopy(test_set.targets.to(TORCH_DEVICE))
-    adv_dataset = GenericDataset(adv_inputs, adv_labels)
+    adv_dataset = GenericDataset(adv_examples, adv_labels)
 
     return adv_dataset
 
 def pgd_test_set_attack(net: VanillaNetLinear, hps: Hyperparameters, test_set: Dataset, iterations: int = 10) -> Dataset:
-    curr_dset = GenericDataset(copy.deepcopy(test_set.data.to(TORCH_DEVICE)), copy.deepcopy(test_set.targets.to(TORCH_DEVICE)))
     net.eval()
-
-    for _ in range(iterations):
-        adv_examples_grads = torch.zeros_like(test_set.data, dtype=torch.float32, device=TORCH_DEVICE)
-        data_loader = DataLoader(curr_dset, batch_size=1000, shuffle=False)
-
-        test_set_adv_grads = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
-        for batch_data, batch_target in data_loader:
-            batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE, dtype=torch.float32), batch_target.to(TORCH_DEVICE)
-            batch_data_test.requires_grad = True
-            y_hat_test = net(batch_data_test)
+    data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
+    adv_inputs = torch.tensor([], dtype=torch.float32, device=TORCH_DEVICE)
+    for batch_data, batch_target in data_loader:
+        batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE), batch_target.to(TORCH_DEVICE)
+        curr_batch_adv_examples = batch_data_test.clone().detach()
+        for _ in range(iterations):
+            curr_batch_adv_examples.requires_grad = True
+            y_hat_test = net(curr_batch_adv_examples)
             loss = hps.criterion(y_hat_test, batch_target_test)
             loss.backward()
-            batch_adv_grads = copy.deepcopy(batch_data_test.grad.data)
-            test_set_adv_grads = torch.cat((test_set_adv_grads, batch_adv_grads), dim=0)
+
+            new_it_adv_examples = copy.deepcopy(curr_batch_adv_examples) + hps.eps * curr_batch_adv_examples.grad.data.sign()
+            delta = torch.clamp(new_it_adv_examples - batch_data_test, -hps.eps, hps.eps)
+            curr_it_projected_adv_examples = torch.clamp(batch_data_test + delta, 0, 1)
+            curr_batch_adv_examples = curr_it_projected_adv_examples.clone().detach()
             net.zero_grad()
-            batch_data_test.grad.zero_()
-        # squeeze dim 1 because image is of shape [1, 28, 28] where 1 is the number of channels, so batch_adv_examples is of shape [batch_size, 1, 28, 28]
-        adv_examples_grads += test_set_adv_grads.squeeze(dim=1)
+        adv_inputs = torch.cat((adv_inputs, curr_batch_adv_examples), dim=0)
 
-        curr_it_adv_inputs = copy.deepcopy(curr_dset.data.to(TORCH_DEVICE)) + hps.eps * torch.sign(adv_examples_grads)
-        delta = torch.clamp(curr_it_adv_inputs - test_set.data.to(TORCH_DEVICE), -hps.eps, hps.eps)
-        curr_it_projected_adv_inputs = torch.clamp(test_set.data.to(TORCH_DEVICE) + delta, 0, 1)
-        curr_dset = GenericDataset(curr_it_projected_adv_inputs, curr_dset.targets)
-
-    return curr_dset
+    adv_dset = GenericDataset(adv_inputs, copy.deepcopy(test_set.targets))
+    return adv_dset
 
 def ibp_eval(net: VanillaNetLinear, hps: Hyperparameters, test_set: Dataset) -> float:
-    data_loader = DataLoader(test_set, batch_size=1000, shuffle=False, num_workers=2)
+    data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
     net.eval()
 
     worst_case_logits = torch.tensor([]).to(TORCH_DEVICE)

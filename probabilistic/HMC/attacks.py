@@ -98,7 +98,6 @@ def ibp_eval(net: VanillaBnnLinear, hps: HyperparamsHMC, test_set: Dataset, post
 
         avg_worst_case_logits += sample_logits / len(posterior_samples)
 
-    print(f"Len posterior samples: {len(posterior_samples)}")
     correct, total = 0, test_set.data.size(0)
     avg_val_of_max_logit = 0
     #* Very basic, but just to be clear

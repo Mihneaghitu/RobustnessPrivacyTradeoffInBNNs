@@ -23,6 +23,15 @@ class HamiltonianMonteCarlo:
         self.hps = hyperparameters
         self.init_hps = copy.deepcopy(hyperparameters)
 
+    def train_with_restarts(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
+        posterior_samples_all_restarts = []
+        for _ in range(self.hps.num_chains):
+            posterior_samples_all_restarts += self.train_bnn(train_set)
+            self.hps = copy.deepcopy(self.init_hps) # reset the hyperparameters for the next chain
+
+        return posterior_samples_all_restarts
+
+
     def train_bnn(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
 

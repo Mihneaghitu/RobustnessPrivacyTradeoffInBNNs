@@ -37,7 +37,7 @@ from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear, VanillaBnnMnist
 def run_experiment_hmc(net: VanillaBnnLinear, train_data: Dataset, hps: HyperparamsHMC,
                        save_file_name: str = None) -> Tuple[HamiltonianMonteCarlo, List[torch.Tensor]]:
     hmc = HamiltonianMonteCarlo(net, hps)
-    posterior_samples = hmc.train_bnn(train_data)
+    posterior_samples = hmc.train_with_restarts(train_data)
     if save_file_name is not None:
         save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/"
         os.makedirs(save_dir, exist_ok=True)
@@ -72,23 +72,23 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
     hmc.hps.eps = testing_eps
 
     # -------------------- Accuracy metrics --------------------
+    print(f"Number of posterior samples: {len(posterior_samples)}")
     adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
     adv_test_set_fgsm = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
 
-    print(f"Number of posterior samples: {len(posterior_samples)}")
-    print('------------------- Normal Accuracy -------------------')
-    std_acc = hmc.test_hmc_with_average_logits(test_data, posterior_samples)
-    print(f'Accuracy of ADV-HMC-DP with average logit on standard test set: {std_acc} %')
-    print('------------------- FGSM attack --------------------')
-    fgsm_acc = hmc.test_hmc_with_average_logits(adv_test_set_fgsm, posterior_samples)
-    print(f'Accuracy of ADV-HMC-DP with average logit on FGSM adversarial test set: {fgsm_acc} %')
-    print('------------------- PGD attack -------------------')
-    pgd_acc = hmc.test_hmc_with_average_logits(adv_test_set_pgd, posterior_samples)
-    print(f'Accuracy of ADV-HMC-DP with average logit on PGD adversarial test set: {pgd_acc} %')
-    print('------------------- IBP attack -------------------')
     with torch.no_grad():
+        print('------------------- Normal Accuracy -------------------')
+        std_acc = hmc.test_hmc_with_average_logits(test_data, posterior_samples)
+        print(f'Accuracy on standard test set: {std_acc} %')
+        print('------------------- FGSM attack --------------------')
+        fgsm_acc = hmc.test_hmc_with_average_logits(adv_test_set_fgsm, posterior_samples)
+        print(f'Accuracy on FGSM adversarial test set: {fgsm_acc} %')
+        print('------------------- PGD attack -------------------')
+        pgd_acc = hmc.test_hmc_with_average_logits(adv_test_set_pgd, posterior_samples)
+        print(f'Accuracy on PGD adversarial test set: {pgd_acc} %')
         ibp_acc = ibp_eval(hmc.net, hmc.hps, test_data, posterior_samples)
-    print(f'Accuracy of ADV-HMC-DP with IBP on standard test set: {ibp_acc} %')
+        print('------------------- IBP attack -------------------')
+        print(f'Accuracy on IBP adversarial test set: {ibp_acc} %')
 
     # ------------------- Uncertainty metrics -------------------
     in_distrib_auroc = auroc(hmc.net, test_data, posterior_samples)
@@ -128,13 +128,13 @@ def compute_metrics_sgd(pipeline: PipelineDnn, test_data: Dataset, testing_eps: 
     ibp_acc = ibp_eval_dnn(pipeline.net, pipeline.hps, test_data)
 
     print('------------------- Normal Accuracy -------------------')
-    print(f'Accuracy of ADV-HMC-DP with average logit on standard test set: {std_acc} %')
+    print(f'Accuracy of SGD on standard test set: {std_acc} %')
     print('------------------- FGSM attack --------------------')
-    print(f'Accuracy of ADV-HMC-DP with average logit on FGSM adversarial test set: {fgsm_acc} %')
+    print(f'Accuracy of SGD on FGSM adversarial test set: {fgsm_acc} %')
     print('------------------- PGD attack -------------------')
-    print(f'Accuracy of ADV-HMC-DP with average logit on PGD adversarial test set: {pgd_acc} %')
+    print(f'Accuracy of SGD on PGD adversarial test set: {pgd_acc} %')
     print('------------------- IBP attack -------------------')
-    print(f'Accuracy of ADV-HMC-DP with IBP on standard test set: {ibp_acc} %')
+    print(f'Accuracy of SGD on IBP adversarial test set: {ibp_acc} %')
 
     # ------------------- Uncertainty metrics -------------------
     out_of_distrib_test = load_fashion_mnist()[1]
@@ -258,5 +258,5 @@ def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
 
     compute_metrics_sgd(pipeline, test_set, testing_eps=testing_eps, write_results=True, dset_name=dset_name, for_adv_comparison=for_adv_comparison)
 
-# test_hmc_from_file(load_mnist()[1], AdvModel.HMC)
-test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD)
+# test_hmc_from_file(load_mnist()[1], AdvModel.HMC, testing_eps=0.075)
+# test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD, testing_eps=0.075)

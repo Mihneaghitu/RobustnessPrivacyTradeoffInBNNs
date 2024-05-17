@@ -17,8 +17,8 @@ MNIST:
     warmup_itr_start: 4000
   HMC:
     num_epochs: 70
-    num_burnin_epochs: 1
-    step_size: 0.003
+    num_burnin_epochs: 10
+    step_size: 0.01
     lf_steps: 120
     batch_size: 500
     criterion: CrossEntropyLoss
@@ -32,12 +32,12 @@ MNIST:
     alpha_warmup_epochs: 0
     eps_warmup_epochs: 0
     alpha: 0.75
-    eps: 0.1
+    eps: 0.075
     run_dp: false
     grad_clip_bound: 0.4
     acceptance_clip_bound: 0.4
-    tau_g: 0.15
-    tau_l: 0.15
+    tau_g: 0.2
+    tau_l: 0.2
   HMC-DP:
     num_epochs: 70
     num_burnin_epochs: 35
