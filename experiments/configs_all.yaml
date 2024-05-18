@@ -16,13 +16,13 @@ MNIST:
     decay_epoch_start: 10
     warmup_itr_start: 4000
   HMC:
-    num_epochs: 70
+    num_epochs: 50
     num_burnin_epochs: 10
-    step_size: 0.01
+    step_size: 0.004
     lf_steps: 120
     batch_size: 500
     criterion: CrossEntropyLoss
-    num_chains: 1
+    num_chains: 3
     decay_epoch_start: 35
     lr_decay_magnitude: 0.5
     warmup_step_size: 0.1
@@ -36,8 +36,8 @@ MNIST:
     run_dp: false
     grad_clip_bound: 0.4
     acceptance_clip_bound: 0.4
-    tau_g: 0.2
-    tau_l: 0.2
+    tau_g: 0.15
+    tau_l: 0.15
   HMC-DP:
     num_epochs: 70
     num_burnin_epochs: 10

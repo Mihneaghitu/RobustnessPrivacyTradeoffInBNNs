@@ -31,30 +31,45 @@ from probabilistic.HMC.attacks import (fgsm_predictive_distrib_attack,
 from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.uncertainty import auroc, ece, ood_detection_auc_and_ece
-from probabilistic.HMC.vanilla_bnn import VanillaBnnLinear, VanillaBnnMnist
+from probabilistic.HMC.vanilla_bnn import (VanillaBnnFashionMnist,
+                                           VanillaBnnLinear, VanillaBnnMnist)
 
 
 def run_experiment_hmc(net: VanillaBnnLinear, train_data: Dataset, hps: HyperparamsHMC,
-                       save_file_name: str = None) -> Tuple[HamiltonianMonteCarlo, List[torch.Tensor]]:
+                       save_dir_name: str = None) -> Tuple[HamiltonianMonteCarlo, List[torch.Tensor]]:
     hmc = HamiltonianMonteCarlo(net, hps)
     posterior_samples = hmc.train_with_restarts(train_data)
-    if save_file_name is not None:
-        save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/"
-        os.makedirs(save_dir, exist_ok=True)
-        torch.save(posterior_samples, save_dir + save_file_name + ".npy")
+    if save_dir_name is not None:
+        save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/" + save_dir_name + "/"
+        save_samples(posterior_samples, save_dir)
 
     return hmc, posterior_samples
 
-def run_experiment_adv_hmc(net: VanillaBnnLinear, train_data: Dataset, hps: HyperparamsHMC, attack_type: AttackType, save_file_name: str = None,
+def run_experiment_adv_hmc(net: VanillaBnnLinear, train_data: Dataset, hps: HyperparamsHMC, attack_type: AttackType, save_dir_name: str = None,
                            init_from_trained: bool = False) -> Tuple[AdvHamiltonianMonteCarlo, List[torch.Tensor]]:
     hmc = AdvHamiltonianMonteCarlo(net, hps, attack_type)
     posterior_samples = hmc.train_with_restarts(train_data, init_from_trained)
-    if save_file_name is not None:
-        save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/"
-        os.makedirs(save_dir, exist_ok=True)
-        torch.save(posterior_samples, save_dir + save_file_name + ".npy")
+    if save_dir_name is not None:
+        save_dir = __file__.rsplit('/', 1)[0] + "/posterior_samples/" + save_dir_name + "/"
+        save_samples(posterior_samples, save_dir)
 
     return hmc, posterior_samples
+
+def save_samples(posterior_samples: List[torch.Tensor], save_dir: str) -> None:
+    # save_file_dir is the absolute path to the directory where the posterior samples will be saved
+    os.makedirs(save_dir, exist_ok=True)
+    for file in os.listdir(save_dir):
+        os.remove(os.path.join(save_dir, file))
+
+    for i, sample in enumerate(posterior_samples):
+        torch.save(sample, save_dir + f"sample_{i}.npy")
+
+def load_samples(save_dir: str) -> List[torch.Tensor]:
+    posterior_samples = []
+    for file in os.listdir(save_dir):
+        posterior_samples.append(torch.load(save_dir + file))
+
+    return posterior_samples
 
 def run_experiment_sgd(net: VanillaNetLinear, train_data: Dataset, hps: Hyperparameters, attack_type: AttackType, save_file_name: str = None) -> PipelineDnn:
     pipeline = PipelineDnn(net, hps, attack_type)
@@ -71,12 +86,12 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
                         for_adv_comparison: bool = True) -> None:
     hmc.hps.eps = testing_eps
 
-    # -------------------- Accuracy metrics --------------------
     print(f"Number of posterior samples: {len(posterior_samples)}")
     adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
     adv_test_set_fgsm = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
 
     with torch.no_grad():
+        # -------------------- Accuracy metrics --------------------
         print('------------------- Normal Accuracy -------------------')
         std_acc = hmc.test_hmc_with_average_logits(test_data, posterior_samples)
         print(f'Accuracy on standard test set: {std_acc} %')
@@ -90,18 +105,18 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
         print('------------------- IBP attack -------------------')
         print(f'Accuracy on IBP adversarial test set: {ibp_acc} %')
 
-    # ------------------- Uncertainty metrics -------------------
-    in_distrib_auroc = auroc(hmc.net, test_data, posterior_samples)
-    in_distrib_ece = ece(hmc.net, test_data, posterior_samples)
-    out_of_distrib_test_data = load_fashion_mnist()[1]
-    ood_auroc, ood_ece = ood_detection_auc_and_ece(hmc.net, test_data, out_of_distrib_test_data, posterior_samples)
+        # ------------------- Uncertainty metrics -------------------
+        in_distrib_auroc = auroc(hmc.net, test_data, posterior_samples)
+        in_distrib_ece = ece(hmc.net, test_data, posterior_samples)
+        out_of_distrib_test_data = load_fashion_mnist()[1]
+        ood_auroc, ood_ece = ood_detection_auc_and_ece(hmc.net, test_data, out_of_distrib_test_data, posterior_samples)
 
-    print('------------------- Uncertainty metrics -------------------')
-    print(f'STD AUC: {in_distrib_auroc}')
-    print(f'STD ECE: {in_distrib_ece}')
-    print(f'OUT-OF-DISTRIBUTION AUC: {ood_auroc}')
-    print(f'OUT-OF-DISTRIBUTION ECE: {ood_ece}')
-    print('-----------------------------------------------------------')
+        print('------------------- Uncertainty metrics -------------------')
+        print(f'STD AUC: {in_distrib_auroc}')
+        print(f'STD ECE: {in_distrib_ece}')
+        print(f'OUT-OF-DISTRIBUTION AUC: {ood_auroc}')
+        print(f'OUT-OF-DISTRIBUTION ECE: {ood_ece}')
+        print('-----------------------------------------------------------')
 
     if write_results:
         std_acc = round(float(std_acc) / 100, 4)
@@ -212,13 +227,13 @@ def test_hmc_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
 
     curr_dir = __file__.rsplit('/', 1)[0]
     config_file = curr_dir + ("/configs_adv.yaml" if for_adv_comparison else "/configs_all.yaml")
-    posterior_samples_file = curr_dir + "/posterior_samples/"
+    posterior_samples_dir = curr_dir + "/posterior_samples/"
     model_name = None
     if for_adv_comparison:
-        posterior_samples_file += ROOT_FNAMES_ADV[experiment_type.value] + dset_name.lower() + ".npy"
+        posterior_samples_dir += ROOT_FNAMES_ADV[experiment_type.value] + dset_name.lower() + "/"
         model_name = MODEL_NAMES_ADV[experiment_type.value]
     else:
-        posterior_samples_file += ROOT_FNAMES_ADV_DP[experiment_type.value] + dset_name.lower() + ".npy"
+        posterior_samples_dir += ROOT_FNAMES_ADV_DP[experiment_type.value] + dset_name.lower() + "/"
         model_name = MODEL_NAMES_ADV_DP[experiment_type.value]
 
     with open(config_file, 'r', encoding="utf-8") as f:
@@ -227,10 +242,12 @@ def test_hmc_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
     # This is saved as a string, but inside the class it's a module, so to avoid any weirdness and because it's optional anyways, we remove it
     del hps_config['criterion']
     hps, net = HyperparamsHMC(**hps_config), None
-    posterior_samples = torch.load(posterior_samples_file)
+    posterior_samples = load_samples(posterior_samples_dir)
     if dset_name == "MNIST":
         # this can be a new object because the parameters are the posterior samples anyways
         net = VanillaBnnMnist().to(TORCH_DEVICE)
+    elif dset_name == "FMNIST":
+        net = VanillaBnnFashionMnist().to(TORCH_DEVICE)
     hmc = AdvHamiltonianMonteCarlo(net, hps)
 
     compute_metrics_hmc(hmc, test_set, posterior_samples, testing_eps=testing_eps, write_results=True, model_name=model_name,

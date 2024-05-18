@@ -6,6 +6,7 @@ sys.path.append('../')
 from math import ceil
 
 import torch
+from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader, Dataset
 
 from common.attack_types import AttackType
@@ -58,21 +59,24 @@ class PipelineDnn:
                 batch_data_train, batch_target_train = data[0].to(TORCH_DEVICE), data[1].to(TORCH_DEVICE)
                 y_hat = self.net(batch_data_train)
                 loss = self.hps.criterion(y_hat, batch_target_train)
-                loss.backward()
+                if self.hps.run_dp:
+                    self.__privatize(batch_data_train, batch_target_train, adv=False)
+                else:
+                    loss.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
                         new_val = self.net.update_param(param, param.grad, self.hps.alpha * self.hps.lr)
                         param.copy_(new_val)
                 # --------------------------------------------------------------------------------------
-
-                # shortcircuit for faster std training
                 self.net.zero_grad()
-
                 # --------------------- Adversarial forward pass and backprop step ---------------------
                 adv_batch_data = self.adv_generator(batch_data_train, batch_target_train)
                 y_hat_adv = self.net(adv_batch_data) if self.attack_type != AttackType.IBP else adv_batch_data
                 closs = self.adv_criterion(y_hat_adv, batch_target_train)
-                closs.backward()
+                if self.hps.run_dp:
+                    self.__privatize(batch_data_train, batch_target_train, adv=False)
+                else:
+                    closs.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
                         new_val = self.net.update_param(param, param.grad, (1 - self.hps.alpha) * self.hps.lr)
@@ -102,6 +106,44 @@ class PipelineDnn:
             correct += (predicted == batch_target_test).sum().item()
 
         return 100 * correct / total
+
+    def __privatize(self, batch_data: torch.Tensor, batch_target: torch.Tensor, adv: bool = False) -> torch.Tensor:
+        if adv:
+            params = {k: v.detach() for k, v in self.adv_criterion.named_parameters()}
+            buffers = {k: v.detach() for k, v in self.adv_criterion.named_buffers()}
+            compute_grad = grad(self.__compute_per_sample_loss_adv)
+        else:
+            params = {k: v.detach() for k, v in self.net.named_parameters()}
+            buffers = {k: v.detach() for k, v in self.net.named_buffers()}
+            compute_grad = grad(self.__compute_per_sample_loss_std)
+        compute_per_sample_grads = vmap(compute_grad, in_dims=(None, None, 0, 0))
+        per_sample_grads = compute_per_sample_grads(params, buffers, batch_data, batch_target)
+
+        per_layer_mean_clipped_grads = []
+        for batch_grads in per_sample_grads.values():
+            clip_per_sample_grad = vmap(self.__clip, in_dims=(0, None), out_dims=0)
+            clipped_per_sample_grads = clip_per_sample_grad(batch_grads, self.hps.grad_clip_bound)
+            per_layer_mean_clipped_grads.append(torch.mean(clipped_per_sample_grads, dim=0)) # average over samples
+        for idx, param in enumerate(self.net.parameters()):
+            param.grad = per_layer_mean_clipped_grads[idx]
+
+    def __compute_per_sample_loss_std(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch = sample.unsqueeze(0)
+        targets = target.unsqueeze(0)
+
+        predictions = functional_call(self.net, (params, buffers), (batch,))
+        loss = self.hps.criterion(predictions, targets)
+        return loss
+
+    def __compute_per_sample_loss_adv(self, params: torch.Tensor, buffers: torch.Tensor, sample: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        batch = sample.unsqueeze(0)
+        targets = target.unsqueeze(0)
+
+        loss = functional_call(self.adv_criterion, (params, buffers), (batch, targets))
+        return loss
+
+    def __clip(self, x: torch.Tensor, bound: float) -> torch.Tensor:
+        return x * torch.min(torch.tensor(1), bound / torch.norm(x))
 
     def __gen_fgsm_attack(self, batch_data: torch.Tensor, batch_target: torch.Tensor) -> torch.Tensor:
         copy_batch_data = copy.deepcopy(batch_data.detach().clone())
