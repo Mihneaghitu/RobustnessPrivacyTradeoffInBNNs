@@ -1,7 +1,7 @@
 MNIST:
   SGD:
-    num_epochs: 15
-    lr: 0.1
+    num_epochs: 25
+    lr: 0.25
     criterion: CrossEntropyLoss
     lr_decay_magnitude: 0.1
     batch_size: 60
@@ -32,7 +32,7 @@ MNIST:
     alpha_warmup_epochs: 0
     eps_warmup_epochs: 0
     alpha: 0.75
-    eps: 0.075
+    eps: 0.1
     run_dp: false
     grad_clip_bound: 0.4
     acceptance_clip_bound: 0.4
@@ -40,14 +40,14 @@ MNIST:
     tau_l: 0.2
   HMC-DP:
     num_epochs: 70
-    num_burnin_epochs: 35
-    step_size: 0.018
+    num_burnin_epochs: 10
+    step_size: 0.0165
     lf_steps: 120
     batch_size: 500
     criterion: CrossEntropyLoss
-    num_chains: 1
+    num_chains: 3
     decay_epoch_start: 35
-    lr_decay_magnitude: 0.05
+    lr_decay_magnitude: 0.5
     warmup_step_size: 0.1
     momentum_std: 0.01
     prior_mu: 0.0
@@ -55,7 +55,7 @@ MNIST:
     alpha_warmup_epochs: 0
     eps_warmup_epochs: 0
     alpha: 0.75
-    eps: 0.075
+    eps: 0.1
     run_dp: true
     grad_clip_bound: 0.4
     acceptance_clip_bound: 0.4

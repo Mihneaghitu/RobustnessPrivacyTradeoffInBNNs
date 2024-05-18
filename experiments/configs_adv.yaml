@@ -1,5 +1,20 @@
 MNIST:
-  SGD: null
+  SGD:
+    num_epochs: 25
+    lr: 0.25
+    criterion: CrossEntropyLoss
+    lr_decay_magnitude: 0.1
+    batch_size: 60
+    warmup_lr: 0.1
+    run_dp: false
+    grad_norm_bound: -1
+    dp_sigma: 1.0
+    alpha: 1
+    eps: 0.1
+    eps_warmup_itrs: 6000
+    alpha_warmup_itrs: 6000
+    decay_epoch_start: 10
+    warmup_itr_start: 4000
   HMC:
     num_epochs: 70
     num_burnin_epochs: 10
@@ -23,6 +38,72 @@ MNIST:
     acceptance_clip_bound: 0.4
     tau_g: 0.2
     tau_l: 0.2
-  ADV-HMC (FGSM): null
-  ADV-HMC (PGD): null
-  ADV-HMC (IBP): null
+  ADV-HMC (FGSM):
+    num_epochs: 50
+    num_burnin_epochs: 10
+    step_size: 0.00675
+    lf_steps: 120
+    batch_size: 500
+    criterion: CrossEntropyLoss
+    num_chains: 3
+    decay_epoch_start: 35
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 0.15
+    momentum_std: 0.01
+    prior_mu: 0.0
+    prior_std: 1.0
+    alpha_warmup_epochs: 20
+    eps_warmup_epochs: 10
+    alpha: 0.5
+    eps: 0.1
+    run_dp: false
+    grad_clip_bound: 1
+    acceptance_clip_bound: 1
+    tau_g: 0.05
+    tau_l: 0.05
+  ADV-HMC (PGD):
+    num_epochs: 30
+    num_burnin_epochs: 25
+    step_size: 0.01
+    lf_steps: 120
+    batch_size: 500
+    criterion: CrossEntropyLoss
+    num_chains: 1
+    decay_epoch_start: 40
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 1.25
+    momentum_std: 0.003
+    prior_mu: 0.0
+    prior_std: 1.0
+    alpha_warmup_epochs: 20
+    eps_warmup_epochs: 12
+    alpha: 0.5
+    eps: 0.1
+    run_dp: false
+    grad_clip_bound: 1
+    acceptance_clip_bound: 1
+    tau_g: 0.05
+    tau_l: 0.05
+  ADV-HMC (IBP):
+    num_epochs: 65
+    num_burnin_epochs: 25
+    step_size: 0.1
+    lf_steps: 120
+    batch_size: 500
+    criterion: CrossEntropyLoss
+    num_chains: 3
+    decay_epoch_start: 50
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 0.25
+    momentum_std: 0.002
+    prior_mu: 0.0
+    prior_std: 2
+    alpha_warmup_epochs: 20
+    eps_warmup_epochs: 15
+    alpha: 0.98
+    eps: 0.1
+    run_dp: false
+    grad_clip_bound: 1
+    acceptance_clip_bound: 1
+    tau_g: 0.05
+    tau_l: 0.05

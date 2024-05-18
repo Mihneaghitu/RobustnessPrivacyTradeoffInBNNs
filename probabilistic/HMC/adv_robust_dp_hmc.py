@@ -47,14 +47,17 @@ class AdvHamiltonianMonteCarlo:
         if first_chain_from_trained: # first chain from a trained network
             # not needed when initializing from a trained network
             self.hps.num_burnin_epochs, self.hps.alpha_warmup_epochs, self.hps.eps_warmup_epochs = 0, 0, 0
+            self.hps.eps, self.hps.alpha = self.init_hps.eps, self.init_hps.alpha
             posterior_samples_all_restarts += self.train_bnn(train_set, from_trained=first_chain_from_trained)
             # restore the initial hyperparams for the subsequent chains
-            self.hps.num_burnin_epochs = self.init_hps.num_burnin_epochs
-            self.hps.alpha_warmup_epochs = self.init_hps.alpha_warmup_epochs
-            self.hps.eps_warmup_epochs = self.init_hps.eps_warmup_epochs
+            # for now, this seems to be the only alpha for which ADV-IBP can achieve decent results without 
+            # initializing from a trained network
+            self.init_hps.alpha = 0.98
             self.hps.num_chains -= 1
 
         for _ in range(self.hps.num_chains):
+            self.hps = copy.deepcopy(self.init_hps)
+            self.hps.eps, self.hps.alpha = 0, 1
             posterior_samples_all_restarts += self.train_bnn(train_set)
 
         return posterior_samples_all_restarts
