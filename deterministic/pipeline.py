@@ -6,6 +6,7 @@ sys.path.append('../')
 from math import ceil
 
 import torch
+import torch.distributions as dist
 from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader, Dataset
 
@@ -49,8 +50,8 @@ class PipelineDnn:
 
         running_loss_std, running_loss_adv = 0.0, 0.0
         itr = 1
+        dp_noise_dist = dist.Normal(0, self.hps.dp_sigma)
         for epoch in range(self.hps.num_epochs):
-            losses  = []
             self.__run_lr_schedule(epoch + 1)
             for _, data in enumerate(data_loader):
                 self.__run_warmup_schedule(itr)
@@ -65,7 +66,10 @@ class PipelineDnn:
                     loss.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
-                        new_val = self.net.update_param(param, param.grad, self.hps.alpha * self.hps.lr)
+                        dp_noise = dp_noise_dist.sample(param.shape).to(TORCH_DEVICE) if self.hps.run_dp else 0
+                        dp_noise /= self.hps.batch_size
+                        new_val = self.net.update_param(param, param.grad + dp_noise, self.hps.alpha * self.hps.lr)
+                        
                         param.copy_(new_val)
                 # --------------------------------------------------------------------------------------
                 self.net.zero_grad()
@@ -74,19 +78,20 @@ class PipelineDnn:
                 y_hat_adv = self.net(adv_batch_data) if self.attack_type != AttackType.IBP else adv_batch_data
                 closs = self.adv_criterion(y_hat_adv, batch_target_train)
                 if self.hps.run_dp:
-                    self.__privatize(batch_data_train, batch_target_train, adv=False)
+                    self.__privatize(y_hat_adv, batch_target_train, adv=True)
                 else:
                     closs.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
-                        new_val = self.net.update_param(param, param.grad, (1 - self.hps.alpha) * self.hps.lr)
+                        dp_noise = dp_noise_dist.sample(param.shape).to(TORCH_DEVICE) if self.hps.run_dp else 0
+                        dp_noise /= self.hps.batch_size
+                        new_val = self.net.update_param(param, param.grad + dp_noise, (1 - self.hps.alpha) * self.hps.lr)
                         param.copy_(new_val)
                 # --------------------------------------------------------------------------------------
 
-                losses.append((loss.item(), closs.item()))
+                itr += 1
                 running_loss_std += loss.item()
                 running_loss_adv += closs.item()
-                itr += 1
             print(f'[epoch {epoch + 1}] average standard loss: {running_loss_std / (num_batches_per_epoch)}')
             print(f'[epoch {epoch + 1}] average adversarial loss: {running_loss_adv / (num_batches_per_epoch)}')
             running_loss_std, running_loss_adv = 0.0, 0.0
@@ -122,7 +127,7 @@ class PipelineDnn:
         per_layer_mean_clipped_grads = []
         for batch_grads in per_sample_grads.values():
             clip_per_sample_grad = vmap(self.__clip, in_dims=(0, None), out_dims=0)
-            clipped_per_sample_grads = clip_per_sample_grad(batch_grads, self.hps.grad_clip_bound)
+            clipped_per_sample_grads = clip_per_sample_grad(batch_grads, self.hps.grad_norm_bound)
             per_layer_mean_clipped_grads.append(torch.mean(clipped_per_sample_grads, dim=0)) # average over samples
         for idx, param in enumerate(self.net.parameters()):
             param.grad = per_layer_mean_clipped_grads[idx]
