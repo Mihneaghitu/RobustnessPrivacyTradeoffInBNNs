@@ -250,7 +250,7 @@ def test_hmc_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
         net = VanillaBnnFashionMnist().to(TORCH_DEVICE)
     hmc = AdvHamiltonianMonteCarlo(net, hps)
 
-    compute_metrics_hmc(hmc, test_set, posterior_samples, testing_eps=testing_eps, write_results=True, model_name=model_name,
+    compute_metrics_hmc(hmc, test_set, posterior_samples, testing_eps=testing_eps, write_results=False, model_name=model_name,
                         dset_name=dset_name, for_adv_comparison=for_adv_comparison)
 
 def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDpModel], dset_name="MNIST", testing_eps: float = 0.1):
@@ -273,7 +273,7 @@ def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
     net.load_state_dict(torch.load(net_file))
     pipeline = PipelineDnn(net, hps)
 
-    compute_metrics_sgd(pipeline, test_set, testing_eps=testing_eps, write_results=True, dset_name=dset_name, for_adv_comparison=for_adv_comparison)
+    compute_metrics_sgd(pipeline, test_set, testing_eps=testing_eps, write_results=False, dset_name=dset_name, for_adv_comparison=for_adv_comparison)
 
 # test_hmc_from_file(load_mnist()[1], AdvModel.HMC, testing_eps=0.075)
 # test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD, testing_eps=0.075)

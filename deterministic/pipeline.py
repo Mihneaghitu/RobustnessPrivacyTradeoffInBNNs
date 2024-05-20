@@ -66,10 +66,8 @@ class PipelineDnn:
                     loss.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
-                        dp_noise = dp_noise_dist.sample(param.shape).to(TORCH_DEVICE) if self.hps.run_dp else 0
-                        dp_noise /= self.hps.batch_size
-                        new_val = self.net.update_param(param, param.grad + dp_noise, self.hps.alpha * self.hps.lr)
-                        
+                        new_val = self.net.update_param(param, param.grad, self.hps.alpha * self.hps.lr)
+
                         param.copy_(new_val)
                 # --------------------------------------------------------------------------------------
                 self.net.zero_grad()
@@ -83,10 +81,16 @@ class PipelineDnn:
                     closs.backward()
                 with torch.no_grad():
                     for param in self.net.parameters():
-                        dp_noise = dp_noise_dist.sample(param.shape).to(TORCH_DEVICE) if self.hps.run_dp else 0
-                        dp_noise /= self.hps.batch_size
-                        new_val = self.net.update_param(param, param.grad + dp_noise, (1 - self.hps.alpha) * self.hps.lr)
+                        new_val = self.net.update_param(param, param.grad, (1 - self.hps.alpha) * self.hps.lr)
                         param.copy_(new_val)
+
+                # Add noise to the gradients if DP is enabled
+                if self.hps.run_dp:
+                    with torch.no_grad():
+                        for param in self.net.parameters():
+                            dp_noise = dp_noise_dist.sample(param.shape).to(TORCH_DEVICE)
+                            dp_noise /= self.hps.batch_size
+                            new_val = self.net.update_param(param, -dp_noise, self.hps.lr)
                 # --------------------------------------------------------------------------------------
 
                 itr += 1
@@ -96,19 +100,14 @@ class PipelineDnn:
             print(f'[epoch {epoch + 1}] average adversarial loss: {running_loss_adv / (num_batches_per_epoch)}')
             running_loss_std, running_loss_adv = 0.0, 0.0
 
-    def test_mnist_vanilla(self, test_data: Dataset):
+    def test_mnist_vanilla(self, test_set: Dataset):
         self.net.eval()
-        data_loader = DataLoader(test_data, batch_size=32, shuffle=False)
-        losses, correct, total = [], 0, 0
-
-        for batch_data, batch_target in data_loader:
-            batch_data_test, batch_target_test = batch_data.to(TORCH_DEVICE), batch_target.to(TORCH_DEVICE)
-            y_hat = self.net(batch_data_test)
-            loss = self.hps.criterion(y_hat, batch_target_test)
-            losses.append(loss.item())
-            _, predicted = torch.max(y_hat, 1)
-            total += batch_target_test.size(0)
-            correct += (predicted == batch_target_test).sum().item()
+        correct, total = 0, test_set.data.size(0)
+        #* Very basic, but just to be clear
+        for i in range(len(test_set)):
+            y_hat = self.net(test_set.data[i].unsqueeze(0).to(TORCH_DEVICE, dtype=torch.float32))
+            if torch.argmax(y_hat) == test_set.targets[i]:
+                correct += 1
 
         return 100 * correct / total
 

@@ -62,22 +62,23 @@ MNIST:
     tau_g: 0.2
     tau_l: 0.2
   ADV-HMC (IBP):
-    num_epochs: 55
+    num_epochs: 65
     num_burnin_epochs: 25
-    step_size: 0.01
+    step_size: 0.1
     lf_steps: 120
     batch_size: 500
     criterion: CrossEntropyLoss
-    num_chains: 1
-    decay_epoch_start: 25
-    lr_decay_magnitude: 0.2
-    warmup_step_size: 0.1
-    momentum_std: 0.003
+    num_chains: 3
+    decay_epoch_start: 50
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 0.25
+    momentum_std: 0.002
     prior_mu: 0.0
-    prior_std: 1.0
-    alpha_warmup_epochs: 25
-    eps_warmup_epochs: 12
+    prior_std: 2
+    alpha_warmup_epochs: 20
+    eps_warmup_epochs: 15
     alpha: 0.98
+    alpha_pre_trained: 0.75
     eps: 0.1
     run_dp: false
     grad_clip_bound: 1

@@ -26,8 +26,7 @@ class AdvHamiltonianMonteCarlo:
         self.hps = hyperparameters
         self.init_hps = copy.deepcopy(hyperparameters)
         self.attack_type = attack_type
-        self.adv_generator = None
-        self.adv_criterion = None
+        self.adv_generator, self.adv_criterion = None, None
         match attack_type:
             case AttackType.FGSM:
                 self.adv_generator = self.__gen_fgsm_adv_examples
@@ -47,12 +46,8 @@ class AdvHamiltonianMonteCarlo:
         if first_chain_from_trained: # first chain from a trained network
             # not needed when initializing from a trained network
             self.hps.num_burnin_epochs, self.hps.alpha_warmup_epochs, self.hps.eps_warmup_epochs = 0, 0, 0
-            self.hps.eps, self.hps.alpha = self.init_hps.eps, self.init_hps.alpha
+            self.hps.eps, self.hps.alpha = self.init_hps.eps, self.init_hps.alpha_pre_trained
             posterior_samples_all_restarts += self.train_bnn(train_set, from_trained=first_chain_from_trained)
-            # restore the initial hyperparams for the subsequent chains
-            # for now, this seems to be the only alpha for which ADV-IBP can achieve decent results without 
-            # initializing from a trained network
-            self.init_hps.alpha = 0.98
             self.hps.num_chains -= 1
 
         for _ in range(self.hps.num_chains):
@@ -69,7 +64,9 @@ class AdvHamiltonianMonteCarlo:
 
         # q -> current net params, current q -> start net params
         root_dir = __file__.rsplit('/', 3)[0]
-        current_q = self.__init_params(from_trained=from_trained, path=os.path.abspath(root_dir + "/vanilla_network.pt"))
+        init_file = (os.path.abspath(root_dir + "/vanilla_network_ibp.pt") if self.hps.run_dp
+                     else os.path.abspath(root_dir + "/vanilla_network_ibp_dp.pt"))
+        current_q = self.__init_params(from_trained=from_trained, path=init_file)
 
         running_loss_ce, running_loss_ce_adv = 0.0, 0.0
         for epoch in range(self.hps.num_epochs):
@@ -201,7 +198,7 @@ class AdvHamiltonianMonteCarlo:
                 # TODO: this might need to be the same sample for a batch, not 2 different ones for standard and adv
                 factor = self.hps.alpha if not adv else (1 - self.hps.alpha)
                 total_batch_noise = dist.Normal(0, 2 * self.hps.tau_g * self.hps.grad_clip_bound).sample(param.shape).to(TORCH_DEVICE)
-                potential_energy_grad += factor * total_batch_noise / self.hps.batch_size
+                potential_energy_grad += (factor ** 0.5) * total_batch_noise / self.hps.batch_size
             p[idx] = self.net.update_param(p[idx], potential_energy_grad, lr)
 
         self.net.zero_grad()

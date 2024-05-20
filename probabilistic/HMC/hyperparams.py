@@ -22,6 +22,7 @@ class HyperparamsHMC:
     eps_warmup_epochs: int = 0 #! needs to be less than the burnin epochs
     # ------------ Adversarial Training Params ------------
     alpha: float = 0.75 # trade-off between the two objectives
+    alpha_pre_trained: float = 0 # if initialized with a pre-trained model
     eps: float = 0.1 # perturbation radius
     # ------------ DP Params ------------
     run_dp: bool = False

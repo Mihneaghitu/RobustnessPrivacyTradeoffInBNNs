@@ -110,7 +110,7 @@ class HamiltonianMonteCarlo:
         return posterior_samples
 
     def test_hmc_with_average_logits(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
-        average_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
+        mean_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
         for sample in posterior_samples:
             self.net.set_params(sample)
             self.net.eval()
@@ -122,11 +122,11 @@ class HamiltonianMonteCarlo:
                 batch_data_test  = data.to(TORCH_DEVICE)
                 y_hat = self.net(batch_data_test)
                 sample_results = torch.cat((sample_results, y_hat), dim=0)
-            average_logits += sample_results / len(posterior_samples)
+            mean_logits += sample_results / len(posterior_samples)
 
         correct, total = 0, test_set.targets.size(0)
         for i in range(test_set.targets.size(0)):
-            avg_logit = average_logits[i]
+            avg_logit = mean_logits[i]
             index_of_max_logit = torch.argmax(avg_logit)
             if index_of_max_logit == test_set.targets[i]:
                 correct += 1
@@ -170,7 +170,6 @@ class HamiltonianMonteCarlo:
 
     def __get_nll_loss(self, criterion: torch.nn.Module, data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
         batch_data, batch_target = self.__get_batch(data_loader)
-        # Forward pass
         y_hat = self.net(batch_data)
         closs = criterion(y_hat, batch_target)
         self.net.zero_grad()

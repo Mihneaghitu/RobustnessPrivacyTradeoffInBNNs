@@ -101,6 +101,7 @@ MNIST:
     alpha_warmup_epochs: 20
     eps_warmup_epochs: 15
     alpha: 0.98
+    alpha_pre_trained: 0.75
     eps: 0.1
     run_dp: false
     grad_clip_bound: 1
