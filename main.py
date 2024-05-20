@@ -23,19 +23,20 @@ def main():
     #* Seed is set in globals.py
     # membership_inference_dnn_experiment()
     # membership_inference_bnn_experiment()
-    adv_dp_experiment(write_results=False, save_model=False, for_adv_comparison=True)
+    adv_dp_experiment(write_results=True, save_model=True, for_adv_comparison=False)
     # hmc_dp_experiment(write_results=True, for_adv_comparison=True, save_model=True)
     # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
     return 0
 
 def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = True, save_model: bool = False):
+    # print the seed
     print(f"Using device: {TORCH_DEVICE}")
     vanilla_bnn = VanillaBnnMnist().to(TORCH_DEVICE)
     train_data, test_data = load_mnist()
-    hyperparams = HyperparamsHMC(num_epochs=10, num_burnin_epochs=15, step_size=0.001, warmup_step_size=0.225, lf_steps=120,
-                                 batch_size=500, num_chains=1, momentum_std=0.0025, alpha=0.9925, alpha_pre_trained=0.25, eps=0.1,
-                                 decay_epoch_start=50, lr_decay_magnitude=0.5, eps_warmup_epochs=6, alpha_warmup_epochs=12,
-                                 run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.05, tau_l=0.05, prior_std=10)
+    hyperparams = HyperparamsHMC(num_epochs=60, num_burnin_epochs=25, step_size=0.01, warmup_step_size=0.2, lf_steps=120, batch_size=500,
+                    num_chains=3, momentum_std=0.001, alpha=0.993, alpha_pre_trained=0.75, eps=0.075, step_size_pre_trained=0.001,
+                    decay_epoch_start=50, lr_decay_magnitude=0.5, eps_warmup_epochs=20, alpha_warmup_epochs=16, run_dp=True, grad_clip_bound=0.5,
+                    acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, prior_std=15)
 
     attack_type = AttackType.IBP
     model_name = "ADV-DP-HMC" if hyperparams.run_dp else "ADV-HMC"
@@ -52,7 +53,7 @@ def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
     fname = fname if save_model else None
 
     hmc, posterior_samples = run_experiment_adv_hmc(vanilla_bnn, train_data, hyperparams, attack_type, fname, init_from_trained=True)
-    compute_metrics_hmc(hmc ,test_data, posterior_samples, testing_eps=0.075, write_results=write_results,
+    compute_metrics_hmc(hmc ,test_data, posterior_samples, testing_eps=0.05, write_results=write_results,
                         model_name=model_name, dset_name="MNIST", for_adv_comparison=for_adv_comparison and not hyperparams.run_dp)
 
 

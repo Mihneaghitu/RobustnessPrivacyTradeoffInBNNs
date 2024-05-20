@@ -79,6 +79,7 @@ MNIST:
     eps_warmup_epochs: 15
     alpha: 0.98
     alpha_pre_trained: 0.75
+    step_size_pre_trained: 0.1
     eps: 0.1
     run_dp: false
     grad_clip_bound: 1
@@ -86,25 +87,27 @@ MNIST:
     tau_g: 0.05
     tau_l: 0.05
   ADV-DP-HMC (IBP):
-    num_epochs: 40
-    num_burnin_epochs: 20
+    num_epochs: 60
+    num_burnin_epochs: 25
     step_size: 0.01
     lf_steps: 120
     batch_size: 500
     criterion: CrossEntropyLoss
-    num_chains: 1
-    decay_epoch_start: 25
-    lr_decay_magnitude: 0.2
-    warmup_step_size: 0.1
-    momentum_std: 0.003
+    num_chains: 3
+    decay_epoch_start: 50
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 0.2
+    momentum_std: 0.001
     prior_mu: 0.0
-    prior_std: 1.0
-    alpha_warmup_epochs: 20
-    eps_warmup_epochs: 10
-    alpha: 0.99
-    eps: 0.1
+    prior_std: 15
+    alpha_warmup_epochs: 16
+    eps_warmup_epochs: 20
+    alpha: 0.993
+    alpha_pre_trained: 0.75
+    step_size_pre_trained: 0.001
+    eps: 0.075
     run_dp: true
-    grad_clip_bound: 1
-    acceptance_clip_bound: 1
+    grad_clip_bound: 0.5
+    acceptance_clip_bound: 0.5
     tau_g: 0.05
     tau_l: 0.05
