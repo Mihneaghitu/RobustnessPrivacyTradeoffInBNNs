@@ -110,7 +110,7 @@ class HamiltonianMonteCarlo:
         return posterior_samples
 
     def test_hmc_with_average_logits(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
-        mean_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
+        mean_logits = torch.zeros(len(test_set), self.net.get_num_classes()).to(TORCH_DEVICE)
         for sample in posterior_samples:
             self.net.set_params(sample)
             self.net.eval()
@@ -120,20 +120,26 @@ class HamiltonianMonteCarlo:
             sample_results = torch.tensor([]).to(TORCH_DEVICE)
             for data, _ in data_loader:
                 batch_data_test  = data.to(TORCH_DEVICE)
-                y_hat = self.net(batch_data_test)
-                sample_results = torch.cat((sample_results, y_hat), dim=0)
+                index_of_max_logit = self.net(batch_data_test)
+                sample_results = torch.cat((sample_results, index_of_max_logit), dim=0)
             mean_logits += sample_results / len(posterior_samples)
 
         correct, total = 0, test_set.targets.size(0)
-        for i in range(test_set.targets.size(0)):
-            avg_logit = mean_logits[i]
-            index_of_max_logit = torch.argmax(avg_logit)
-            if index_of_max_logit == test_set.targets[i]:
-                correct += 1
+        if self.net.get_num_classes() > 2:
+            for i in range(test_set.targets.size(0)):
+                avg_logit = mean_logits[i]
+                index_of_max_logit = torch.argmax(avg_logit)
+                if index_of_max_logit == test_set.targets[i].to(TORCH_DEVICE):
+                    correct += 1
+        # Binary classification
+        else:
+            sigmoid = torch.nn.Sigmoid()
+            for i in range(test_set.targets.size(0)):
+                pred = sigmoid(mean_logits[i])
+                if (pred > 0.5 and test_set.targets[i] > 0.5) or (pred < 0.5 and test_set.targets[i] < 0.5):
+                    correct += 1
 
         print(f"Accuracy with average logits: {100 * correct / total} %")
-        if LOGGER_TYPE == LoggerType.WANDB:
-            wandb.log({'accuracy_with_average_logits': 100 * correct / total})
 
         return 100 * correct / total
 

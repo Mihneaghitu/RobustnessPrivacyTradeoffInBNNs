@@ -8,8 +8,9 @@ from globals import TORCH_DEVICE
 
 
 class VanillaBnnLinear(torch.nn.Module, ABC):
-    def __init__(self):
+    def __init__(self, num_classes: int):
         super(VanillaBnnLinear, self).__init__()
+        self.num_classes = num_classes
 
     @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -65,6 +66,9 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
     def get_params(self) -> List[torch.Tensor]:
         return [copy.deepcopy(param) for param in self.parameters()]
 
+    def get_num_classes(self) -> int:
+        return self.num_classes
+
     def _get_bounds_affine(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         miu = (z_inf + z_sup) / 2
         std = (z_sup - z_inf) / 2
@@ -78,9 +82,20 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
     def _get_bounds_monotonic(self, act: torch.nn.Module, z_inf: torch.Tensor, z_sup: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return act(z_inf), act(z_sup)
 
+    def _get_bounds_conv2d(self, weights: torch.Tensor, bias: torch.Tensor, z_inf: torch.Tensor, z_sup: torch.Tensor, stride: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        miu = (z_inf + z_sup) / 2
+        std = (z_sup - z_inf) / 2
+        miu_new = torch.nn.functional.conv2d(miu, weights, bias, stride=stride)
+        std_new = torch.nn.functional.conv2d(std, torch.abs(weights), stride=stride)
+
+        lower_bound, upper_bound = miu_new - std_new, miu_new + std_new
+
+        return lower_bound, upper_bound
+
+
 class VanillaBnnMnist(VanillaBnnLinear):
     def __init__(self):
-        super(VanillaBnnMnist, self).__init__()
+        super(VanillaBnnMnist, self).__init__(10) # 10 classes
         self.linear1 = torch.nn.Linear(784, 512)
         self.linear2 = torch.nn.Linear(512, 10)
 
@@ -118,7 +133,7 @@ class VanillaBnnMnist(VanillaBnnLinear):
 
 class VanillaBnnFashionMnist(VanillaBnnLinear):
     def __init__(self):
-        super(VanillaBnnFashionMnist, self).__init__()
+        super(VanillaBnnFashionMnist, self).__init__(10) # 10 classes
         self.linear1 = torch.nn.Linear(784, 512)
         self.linear2 = torch.nn.Linear(512, 10)
 
@@ -152,6 +167,60 @@ class VanillaBnnFashionMnist(VanillaBnnLinear):
 
     def get_output_size(self) -> int:
         return self.linear2.out_features
+
+class ConvBnnPneumoniaMnist(VanillaBnnLinear):
+    def __init__(self):
+        super(ConvBnnPneumoniaMnist, self).__init__(1) # binary classification
+        self.in_channels = 1
+        self.latent_dim = 4800
+        self.conv1 = torch.nn.Conv2d(self.in_channels, 16, kernel_size=4, stride=2)
+        self.conv2 = torch.nn.Conv2d(16, 48, kernel_size=4, stride=1)
+        self.linear1 = torch.nn.Linear(self.latent_dim, 100)
+        self.linear2 = torch.nn.Linear(100, 1) # binary classification
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = torch.nn.ReLU()(self.conv1(x))
+        y = torch.nn.ReLU()(self.conv2(y))
+        y = torch.nn.Flatten()(y)
+        y = torch.nn.ReLU()(self.linear1(y))
+        y = self.linear2(y)
+
+        return y
+
+    def ibp_forward(self, x: torch.Tensor, eps: float) -> Tuple[torch.Tensor]:
+        z_inf, z_sup = torch.clamp(x - eps, 0, 1), torch.clamp(x + eps, 0, 1)
+
+        # first conv layer
+        z_inf, z_sup = self._get_bounds_conv2d(self.conv1.weight, self.conv1.bias, z_inf, z_sup, stride=2)
+        z_inf, z_sup = self._get_bounds_monotonic(torch.nn.ReLU(), z_inf, z_sup)
+
+        # second conv layer
+        z_inf, z_sup = self._get_bounds_conv2d(self.conv2.weight, self.conv2.bias, z_inf, z_sup, stride=1)
+        z_inf, z_sup = self._get_bounds_monotonic(torch.nn.ReLU(), z_inf, z_sup)
+
+        # flatten the representation
+        z_inf, z_sup = torch.nn.Flatten()(z_inf), torch.nn.Flatten()(z_sup)
+
+        # first fully connected layer
+        z_inf, z_sup = self._get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
+        z_inf, z_sup = self._get_bounds_monotonic(torch.nn.ReLU(), z_inf, z_sup)
+
+        # second fully connected layer -> logits
+        z_inf, z_sup = self._get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
+
+        return z_inf, z_sup
+
+    def get_output_size(self) -> int:
+        return self.linear2.out_features
+
+    def get_input_size(self) -> Tuple[int]:
+        return (self.in_channels, 28, 28)
+
+    def get_worst_case_logits(self, x: torch.Tensor, y: torch.Tensor, eps: float) -> torch.Tensor:
+        z_inf, z_sup = self.ibp_forward(x, eps)
+        # Because it is binary classification, and thus the output is a single neuron, to worst case logit is the lower bound
+        # when the target is 1, and the upper bound when the target is 0
+        return torch.where(y == 1, z_inf, z_sup)
 
 class IbpAdversarialLoss(torch.nn.Module):
     def __init__(self, net: VanillaBnnLinear, base_criterion: torch.nn.Module, eps: float):

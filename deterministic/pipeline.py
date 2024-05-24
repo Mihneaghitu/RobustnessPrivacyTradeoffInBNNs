@@ -111,6 +111,19 @@ class PipelineDnn:
 
         return 100 * correct / total
 
+    def test_binary_classification(self, test_set: Dataset):
+        sigmoid = torch.nn.Sigmoid()
+        self.net.eval()
+        correct, total = 0, test_set.data.size(0)
+        #* Very basic, but just to be clear
+        for i in range(len(test_set)):
+            elem = test_set.data[i].unsqueeze(0).to(TORCH_DEVICE)
+            y_hat = sigmoid(self.net(elem))
+            if (y_hat > 0.5 and test_set.targets[i] > 0.5) or (y_hat < 0.5 and test_set.targets[i] < 0.5):
+                correct += 1
+
+        return 100 * correct / total
+
     def __privatize(self, batch_data: torch.Tensor, batch_target: torch.Tensor, adv: bool = False) -> torch.Tensor:
         if adv:
             params = {k: v.detach() for k, v in self.adv_criterion.named_parameters()}

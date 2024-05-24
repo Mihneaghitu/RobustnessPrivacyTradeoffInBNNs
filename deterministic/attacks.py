@@ -71,19 +71,24 @@ def pgd_test_set_attack(net: VanillaNetLinear, hps: Hyperparameters, test_set: D
 def ibp_eval(net: VanillaNetLinear, hps: Hyperparameters, test_set: Dataset) -> float:
     data_loader = DataLoader(test_set, batch_size=1000, shuffle=False)
     net.eval()
-
+    last_layer_activation = lambda x: F.softmax(x, dim=1) if net.get_num_classes() > 2 else torch.sigmoid(x)
     worst_case_logits = torch.tensor([]).to(TORCH_DEVICE)
     for data, target in data_loader:
         batch_data_test, y_true_test = data.to(TORCH_DEVICE), target.to(TORCH_DEVICE)
         batch_worst_case_logits = net.get_worst_case_logits(batch_data_test, y_true_test, hps.eps)
-        batch_normalized_worst_case_logits = F.softmax(batch_worst_case_logits, dim=1)
+        batch_normalized_worst_case_logits = last_layer_activation(batch_worst_case_logits)
 
         worst_case_logits = torch.cat((worst_case_logits, batch_normalized_worst_case_logits), dim=0)
 
     correct, total = 0, test_set.data.size(0)
     #* Very basic, but just to be clear
-    for i in range(len(test_set)):
-        if torch.argmax(worst_case_logits[i]) == test_set.targets[i]:
+    condition = None
+    if net.get_num_classes() > 1:
+        condition = lambda idx: torch.argmax(worst_case_logits[idx]) == test_set.targets[idx].to(TORCH_DEVICE)
+    else:
+        condition = lambda idx: torch.round(worst_case_logits[idx]) == test_set.targets[idx].to(TORCH_DEVICE)
+    for idx in range(len(test_set)):
+        if condition(idx):
             correct += 1
 
     ibp_robust_acc = 100 * correct / total

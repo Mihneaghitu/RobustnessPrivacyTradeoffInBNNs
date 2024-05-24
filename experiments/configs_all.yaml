@@ -111,3 +111,48 @@ MNIST:
     acceptance_clip_bound: 0.5
     tau_g: 0.05
     tau_l: 0.05
+PNEUMONIA_MNIST:
+  SGD:
+    num_epochs: 98
+    lr: 0.09
+    criterion: BCEWithLogitsLoss
+    lr_decay_magnitude: 0.005
+    batch_size: 109
+    warmup_lr: 0.1
+    run_dp: false
+    grad_norm_bound: 0.5
+    dp_sigma: 0.1
+    alpha: 1
+    eps: 0.01
+    eps_warmup_itrs: 6000
+    alpha_warmup_itrs: 10000
+    decay_epoch_start: 25
+    warmup_itr_start: 3000
+  HMC:
+    num_epochs: 88
+    num_burnin_epochs: 5
+    step_size: 0.008
+    lf_steps: 24
+    batch_size: 218
+    criterion: BCEWithLogitsLoss
+    num_chains: 2
+    decay_epoch_start: 60
+    lr_decay_magnitude: 0.5
+    warmup_step_size: 0.1
+    momentum_std: 0.01
+    prior_mu: 0.0
+    prior_std: 1.0
+    alpha_warmup_epochs: 0
+    eps_warmup_epochs: 0
+    alpha: 0.75
+    alpha_pre_trained: 0
+    step_size_pre_trained: 0
+    eps: 0.1
+    run_dp: false
+    grad_clip_bound: 0.4
+    acceptance_clip_bound: 0.4
+    tau_g: 0.2
+    tau_l: 0.2
+  HMC-DP: null
+  ADV-HMC (IBP): null
+  ADV-DP-HMC (IBP): null

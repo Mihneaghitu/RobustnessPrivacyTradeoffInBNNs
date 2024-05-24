@@ -1,11 +1,12 @@
 import torch
 
+import pneumonia_mnist_runner
 from common.attack_types import AttackType
 from common.dataset_utils import get_marginal_distributions, load_mnist
 from common.datasets import GenericDataset
 from deterministic.hyperparams import Hyperparameters
 from deterministic.membership_inference_dnn import MembershipInferenceAttack
-from deterministic.vanilla_net import VanillaNetLinear
+from deterministic.vanilla_net import VanillaNetMnist
 from experiments.experiment_utils import (compute_metrics_hmc,
                                           compute_metrics_sgd,
                                           run_experiment_adv_hmc,
@@ -23,7 +24,7 @@ def main():
     #* Seed is set in globals.py
     # membership_inference_dnn_experiment()
     # membership_inference_bnn_experiment()
-    adv_dp_experiment(write_results=True, save_model=True, for_adv_comparison=False)
+    # adv_dp_experiment(write_results=True, save_model=True, for_adv_comparison=False)
     # hmc_dp_experiment(write_results=True, for_adv_comparison=True, save_model=True)
     # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
     return 0
@@ -73,7 +74,7 @@ def hmc_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
 
 def dnn_experiment(write_results: bool = False, save_model: bool = False, for_adv_comparison: bool = False):
     train, test = load_mnist()
-    net = VanillaNetLinear().to(TORCH_DEVICE)
+    net = VanillaNetMnist().to(TORCH_DEVICE)
     hyperparams = Hyperparameters(num_epochs=25, lr=0.1, batch_size=60, lr_decay_magnitude=0.5, decay_epoch_start=20,
                                   alpha=0.5, eps=0.1, eps_warmup_itrs=6000, alpha_warmup_itrs=10000, warmup_itr_start=3000,
                                   run_dp=True, grad_norm_bound=0.5, dp_sigma=0.1)
@@ -93,7 +94,7 @@ def membership_inference_dnn_experiment():
     # ------------------------------------------------
     train_data, _ = load_mnist()
     moments = get_marginal_distributions(train_data)
-    target_network = VanillaNetLinear().to(TORCH_DEVICE)
+    target_network = VanillaNetMnist().to(TORCH_DEVICE)
     target_network.load_state_dict(torch.load('vanilla_network.pt'))
     membership_inference_attack = MembershipInferenceAttack(target_network, target_network.get_output_size(), moments)
     print("Training shadow models...")

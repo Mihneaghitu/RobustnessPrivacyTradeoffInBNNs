@@ -9,7 +9,7 @@ from typing import Tuple
 import numpy as np
 import torch
 import torchvision
-from medmnist import OrganSMNIST
+from medmnist import PneumoniaMNIST
 from torch.utils.data import Dataset
 from torchvision import transforms
 
@@ -49,15 +49,19 @@ def load_cifar10() -> Tuple[torchvision.datasets.CIFAR10, torchvision.datasets.C
 
     return train_data, test_data
 
-def load_organsmnist() -> Tuple[OrganSMNIST, OrganSMNIST]:
+def load_pneumonia_mnist() -> Tuple[PneumoniaMNIST, PneumoniaMNIST]:
     curr_dir = __file__.rsplit('/', 2)[0]
     os.chdir(curr_dir)
-    func_input = lambda x: torch.swapaxes(torchvision.transforms.functional.to_tensor(x), 0, 1)
-    func_output = lambda x: torch.from_numpy(x).squeeze(1)
-    train_data = OrganSMNIST(root="./data", split="train", download=True)
-    test_data = OrganSMNIST(root="./data", split="test", download=True)
+    func_input = lambda x: torch.swapaxes(torchvision.transforms.functional.to_tensor(x), 0, 1).unsqueeze(1)
+    func_output = lambda x: torch.from_numpy(x).to(torch.float32)
+    train_data = PneumoniaMNIST(root="./data", split="train", download=True)
+    test_data = PneumoniaMNIST(root="./data", split="test", download=True)
+    valid_data = PneumoniaMNIST(root="./data", split="val", download=True)
     train_input, train_targets = func_input(train_data.imgs), func_output(train_data.labels)
     test_input, test_targets = func_input(test_data.imgs), func_output(test_data.labels)
+    valid_input, valid_targets = func_input(valid_data.imgs), func_output(valid_data.labels)
+    train_input = torch.cat((train_input, valid_input), dim=0)
+    train_targets = torch.cat((train_targets, valid_targets), dim=0)
 
     train_dataset = GenericDataset(train_input.detach().clone(), train_targets.detach().clone())
     test_dataset = GenericDataset(test_input.detach().clone(), test_targets.detach().clone())

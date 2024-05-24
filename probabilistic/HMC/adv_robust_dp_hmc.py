@@ -6,9 +6,8 @@ from typing import List, Tuple
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
-import torchvision
 import wandb
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 sys.path.append('../../')
 
@@ -30,10 +29,10 @@ class AdvHamiltonianMonteCarlo:
         match attack_type:
             case AttackType.FGSM:
                 self.adv_generator = self.__gen_fgsm_adv_examples
-                self.adv_criterion = torch.nn.CrossEntropyLoss()
+                self.adv_criterion = self.hps.criterion
             case AttackType.PGD:
                 self.adv_generator = self.__gen_pgd_adv_examples
-                self.adv_criterion = torch.nn.CrossEntropyLoss()
+                self.adv_criterion = self.hps.criterion
             case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_adv_examples
                 self.adv_criterion = IbpAdversarialLoss(net, torch.nn.CrossEntropyLoss(), self.hps.eps)
@@ -41,7 +40,7 @@ class AdvHamiltonianMonteCarlo:
                 assert self.hps.alpha_warmup_epochs <= self.hps.num_burnin_epochs, "IBP requires that alpha_warmup_epochs <= num_burnin_epochs"
         self.hps.eps, self.hps.alpha = 0, 1
 
-    def train_with_restarts(self, train_set: torchvision.datasets.mnist, first_chain_from_trained: bool = False) -> List[torch.tensor]:
+    def train_with_restarts(self, train_set: Dataset, first_chain_from_trained: bool = False) -> List[torch.tensor]:
         posterior_samples_all_restarts = []
         if first_chain_from_trained: # first chain from a trained network
             # not needed when initializing from a trained network
@@ -58,15 +57,15 @@ class AdvHamiltonianMonteCarlo:
 
         return posterior_samples_all_restarts
 
-    def train_bnn(self, train_set: torchvision.datasets.mnist, from_trained: bool = False) -> List[torch.tensor]:
+    def train_bnn(self, train_set: Dataset, from_trained: bool = False) -> List[torch.tensor]:
         print_freq = self.hps.lf_steps - 1
         data_loader = DataLoader(train_set, batch_size=self.hps.batch_size, shuffle=True)
         posterior_samples = []
 
         # q -> current net params, current q -> start net params
         root_dir = __file__.rsplit('/', 3)[0]
-        init_file = (os.path.abspath(root_dir + "/vanilla_network_ibp_dp.pt") if self.hps.run_dp
-                     else os.path.abspath(root_dir + "/vanilla_network_ibp.pt"))
+        init_file = (os.path.abspath(root_dir + "pre_trained/vanilla_network_ibp_dp.pt") if self.hps.run_dp
+                     else os.path.abspath(root_dir + "pre_trained/vanilla_network_ibp.pt"))
         current_q = self.__init_params(from_trained=from_trained, path=init_file)
 
         running_loss_ce, running_loss_ce_adv = 0.0, 0.0
@@ -133,8 +132,8 @@ class AdvHamiltonianMonteCarlo:
 
         return posterior_samples
 
-    def test_hmc_with_average_logits(self, test_set: torchvision.datasets.mnist, posterior_samples: List[torch.tensor]) -> float:
-        average_logits = torch.zeros(len(test_set), 10).to(TORCH_DEVICE)
+    def test_hmc_with_average_logits(self, test_set: Dataset, posterior_samples: List[torch.tensor]) -> float:
+        mean_logits = torch.zeros(len(test_set), self.net.get_num_classes()).to(TORCH_DEVICE)
         for sample in posterior_samples:
             self.net.set_params(sample)
             self.net.eval()
@@ -144,24 +143,24 @@ class AdvHamiltonianMonteCarlo:
             sample_results = torch.tensor([]).to(TORCH_DEVICE)
             for data, _ in data_loader:
                 batch_data_test  = data.to(TORCH_DEVICE)
-                y_hat = self.net(batch_data_test)
-                sample_results = torch.cat((sample_results, y_hat), dim=0)
-            average_logits += sample_results / len(posterior_samples)
+                index_of_max_logit = self.net(batch_data_test)
+                sample_results = torch.cat((sample_results, index_of_max_logit), dim=0)
+            mean_logits += sample_results / len(posterior_samples)
 
-        print(f"Len posterior samples: {len(posterior_samples)}")
         correct, total = 0, test_set.targets.size(0)
-        avg_val_of_max_logit = 0
-        for i in range(test_set.targets.size(0)):
-            avg_logit = average_logits[i]
-            softmaxed_avg_logit = F.softmax(avg_logit, dim=0)
-            index_of_max_logit = torch.argmax(avg_logit)
-            avg_val_of_max_logit += softmaxed_avg_logit[index_of_max_logit].item()
-            if index_of_max_logit == test_set.targets[i]:
-                correct += 1
-
-        print(f"Average value of max logit: {avg_val_of_max_logit / total}")
-        if LOGGER_TYPE == LoggerType.WANDB:
-            wandb.log({'accuracy_with_average_logits': 100 * correct / total})
+        if self.net.get_num_classes() > 2:
+            for i in range(test_set.targets.size(0)):
+                avg_logit = mean_logits[i]
+                index_of_max_logit = torch.argmax(avg_logit)
+                if index_of_max_logit == test_set.targets[i].to(TORCH_DEVICE):
+                    correct += 1
+        # Binary classification
+        else:
+            sigmoid = torch.nn.Sigmoid()
+            for i in range(test_set.targets.size(0)):
+                pred = sigmoid(mean_logits[i])
+                if (pred > 0.5 and test_set.targets[i] > 0.5) or (pred < 0.5 and test_set.targets[i] < 0.5):
+                    correct += 1
 
         return 100 * correct / total
 
@@ -277,7 +276,7 @@ class AdvHamiltonianMonteCarlo:
         loss.backward()
         input_grads = copy.deepcopy(batch_input.grad.data)
         adv_examples = copy.deepcopy(batch_input)
-        adv_examples = adv_examples + self.hps.eps * torch.sign(input_grads)
+        adv_examples = adv_examples + self.hps.eps * input_grads.sign()
         clamped_adv_examples = torch.clamp(adv_examples, 0, 1)
         batch_input.grad.zero_()
         batch_input.requires_grad = False

@@ -22,7 +22,8 @@ from deterministic.uncertainty import auroc as auroc_dnn
 from deterministic.uncertainty import ece as ece_dnn
 from deterministic.uncertainty import \
     ood_detection_auc_and_ece as detect_ood_dnn
-from deterministic.vanilla_net import VanillaNetLinear
+from deterministic.vanilla_net import (ConvNetPneumoniaMnist, VanillaNetLinear,
+                                       VanillaNetMnist)
 from globals import (MODEL_NAMES_ADV, MODEL_NAMES_ADV_DP, ROOT_FNAMES_ADV,
                      ROOT_FNAMES_ADV_DP, TORCH_DEVICE, AdvDpModel, AdvModel)
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
@@ -87,8 +88,8 @@ def compute_metrics_hmc(hmc: Union[AdvHamiltonianMonteCarlo, HamiltonianMonteCar
     hmc.hps.eps = testing_eps
 
     print(f"Number of posterior samples: {len(posterior_samples)}")
-    adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
     adv_test_set_fgsm = fgsm_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
+    adv_test_set_pgd = pgd_predictive_distrib_attack(hmc.net, hmc.hps, test_data, posterior_samples)
 
     with torch.no_grad():
         # -------------------- Accuracy metrics --------------------
@@ -137,9 +138,10 @@ def compute_metrics_sgd(pipeline: PipelineDnn, test_data: Dataset, testing_eps: 
     fgsm_test_set = fgsm_test_set_attack_dnn(pipeline.net, pipeline.hps, test_data)
     pgd_test_set = pgd_test_set_attack_dnn(pipeline.net, pipeline.hps, test_data)
 
-    std_acc = pipeline.test_mnist_vanilla(test_data)
-    fgsm_acc = pipeline.test_mnist_vanilla(fgsm_test_set)
-    pgd_acc = pipeline.test_mnist_vanilla(pgd_test_set)
+    test_func = pipeline.test_mnist_vanilla if pipeline.net.get_num_classes() > 1 else pipeline.test_binary_classification
+    std_acc = test_func(test_data)
+    fgsm_acc = test_func(fgsm_test_set)
+    pgd_acc = test_func(pgd_test_set)
     ibp_acc = ibp_eval_dnn(pipeline.net, pipeline.hps, test_data)
 
     print('------------------- Normal Accuracy -------------------')
@@ -269,11 +271,11 @@ def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
 
     # This is saved as a string, but inside the class it's a module, so to avoid any weirdness and because it's optional anyways, we remove it
     del hps_config['criterion']
-    hps, net = Hyperparameters(**hps_config), VanillaNetLinear().to(TORCH_DEVICE)
+    hps, net = Hyperparameters(**hps_config), VanillaNetMnist().to(TORCH_DEVICE)
     net.load_state_dict(torch.load(net_file))
     pipeline = PipelineDnn(net, hps)
 
     compute_metrics_sgd(pipeline, test_set, testing_eps=testing_eps, write_results=False, dset_name=dset_name, for_adv_comparison=for_adv_comparison)
 
-# test_hmc_from_file(load_mnist()[1], AdvModel.HMC, testing_eps=0.075)
+# test_hmc_from_file(load_mnist()[1], AdvDpModel.HMC, testing_eps=0.075)
 # test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD, testing_eps=0.075)
