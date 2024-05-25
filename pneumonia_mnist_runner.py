@@ -20,12 +20,12 @@ def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
     # print the seed
     print(f"Using device: {TORCH_DEVICE}")
     vanilla_bnn = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
-    hyperparams = HyperparamsHMC(num_epochs=60, num_burnin_epochs=10, step_size=0.0225, warmup_step_size=0.1, lf_steps=24, batch_size=109,
-                    num_chains=3, momentum_std=0.01, alpha=0.5, alpha_pre_trained=0.75, eps=0.01, step_size_pre_trained=0.001,
-                    decay_epoch_start=40, lr_decay_magnitude=0.5, eps_warmup_epochs=20, alpha_warmup_epochs=16, run_dp=False, grad_clip_bound=0.5,
-                    acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, prior_std=15, criterion=BCEWithLogitsLoss())
+    hyperparams = HyperparamsHMC(num_epochs=80, num_burnin_epochs=25, step_size=0.04, warmup_step_size=0.25, lf_steps=24, batch_size=218,
+                    num_chains=3, momentum_std=0.002, alpha=0.975, alpha_pre_trained=0.75, eps=0.01, step_size_pre_trained=0.001,
+                    decay_epoch_start=40, lr_decay_magnitude=0.5, eps_warmup_epochs=20, alpha_warmup_epochs=16, run_dp=True,
+                    grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, prior_std=5, criterion=BCEWithLogitsLoss())
 
-    attack_type = AttackType.PGD
+    attack_type = AttackType.IBP
     model_name = "ADV-DP-HMC" if hyperparams.run_dp else "ADV-HMC"
     fname = "hmc_dp_pneumonia_mnist" if hyperparams.run_dp else "hmc_pneumonia_mnist"
     if attack_type == AttackType.FGSM:
@@ -45,9 +45,9 @@ def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
 
 def hmc_dp_experiment(write_results: bool = False, for_adv_comparison: bool = True, save_model: bool = False):
     target_network = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
-    hyperparams = HyperparamsHMC(num_epochs=88, num_burnin_epochs=5, step_size=0.008, lf_steps=24, criterion=BCEWithLogitsLoss(),
-                                 num_chains=2, batch_size=218, momentum_std=0.01, decay_epoch_start=60, lr_decay_magnitude=0.5,
-                                 run_dp=False, grad_clip_bound=0.4, acceptance_clip_bound=0.4, tau_g=0.2, tau_l=0.2)
+    hyperparams = HyperparamsHMC(num_epochs=60, num_burnin_epochs=8, step_size=0.07, lf_steps=24, criterion=BCEWithLogitsLoss(),
+                                 num_chains=3, batch_size=218, momentum_std=0.005, decay_epoch_start=40, lr_decay_magnitude=0.5,
+                                 run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1)
 
     fname = f'''hmc{"_dp" if hyperparams.run_dp else ""}_pneumonia_mnist''' if save_model else None
     hmc, posterior_samples = run_experiment_hmc(target_network, TEST_DATA, hyperparams, save_dir_name=fname)
@@ -72,6 +72,6 @@ def dnn_experiment(write_results: bool = False, save_model: bool = False, for_ad
                         for_adv_comparison=for_adv_comparison)
 
 TRAIN_DATA, TEST_DATA = load_pneumonia_mnist()
-adv_dp_experiment(write_results=True, save_model=False, for_adv_comparison=True)
-# hmc_dp_experiment(write_results=True, for_adv_comparison=False, save_model=False)
+# adv_dp_experiment(write_results=True, save_model=False, for_adv_comparison=True)
+hmc_dp_experiment(write_results=True, for_adv_comparison=False, save_model=False)
 # dnn_experiment(save_model=True, write_results=True, for_adv_comparison=True)

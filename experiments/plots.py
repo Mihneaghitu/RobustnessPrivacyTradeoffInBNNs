@@ -40,7 +40,12 @@ def plot_metrics(dataset_name: str = "MNIST", metric_type = "accuracy", for_adv_
     fig.show()
     plt.show()
 
-plot_metrics()
-plot_metrics(metric_type="uncertainty")
-plot_metrics(for_adv_comparison=False)
-plot_metrics(metric_type="uncertainty", for_adv_comparison=False)
+# plot_metrics()
+# plot_metrics(metric_type="uncertainty")
+# plot_metrics(for_adv_comparison=False)
+# plot_metrics(metric_type="uncertainty", for_adv_comparison=False)
+
+plot_metrics(dataset_name="PNEUMONIA_MNIST")
+plot_metrics(dataset_name="PNEUMONIA_MNIST", metric_type="uncertainty")
+plot_metrics(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=False)
+plot_metrics(dataset_name="PNEUMONIA_MNIST", metric_type="uncertainty", for_adv_comparison=False)

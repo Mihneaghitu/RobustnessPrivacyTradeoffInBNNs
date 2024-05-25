@@ -35,7 +35,7 @@ class AdvHamiltonianMonteCarlo:
                 self.adv_criterion = self.hps.criterion
             case AttackType.IBP:
                 self.adv_generator = self.__gen_ibp_adv_examples
-                self.adv_criterion = IbpAdversarialLoss(net, torch.nn.CrossEntropyLoss(), self.hps.eps)
+                self.adv_criterion = IbpAdversarialLoss(net, self.hps.criterion, self.hps.eps)
                 assert self.hps.eps_warmup_epochs <= self.hps.num_burnin_epochs, "IBP requires that eps_warmup_epochs <= num_burnin_epochs"
                 assert self.hps.alpha_warmup_epochs <= self.hps.num_burnin_epochs, "IBP requires that alpha_warmup_epochs <= num_burnin_epochs"
         self.hps.eps, self.hps.alpha = 0, 1
