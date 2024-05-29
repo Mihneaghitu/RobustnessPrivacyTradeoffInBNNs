@@ -34,3 +34,13 @@ MODEL_NAMES_ADV_DP = ["SGD", "HMC", "HMC-DP", "ADV-HMC (IBP)", "ADV-DP-HMC (IBP)
 # metrics for plotting
 ACCURACY_METRICS = ["STD_ACC", "FGSM_ACC", "PGD_ACC", "IBP_ACC"]
 UNCERTAINTY_METRICS = ["IN_DISTRIB_AUROC", "IN_DISTRIB_ECE", "OOD_AUROC", "OOD_ECE"]
+ACCURACY_METRICS_NAMES = [r"\textbf{STANDARD ACCURACY}",
+                          r"\textbf{ACCURACY UNDER FGSM ATTACKS ($\mathbf{\epsilon=0.01}$)}",
+                          r"\textbf{ACCURACY UNDER PGD ATTACKS ($\mathbf{\epsilon=0.01}$)}",
+                          r"\textbf{CERTIFIED IBP ROBUSTNESS ($\mathbf{\epsilon=0.01}$)}"]
+MODEL_PLOT_NAMES_ADV = [r"\textbf{SGD}", r"\textbf{HMC}", r"\textbf{FGSM-HMC}", r"\textbf{PGD-HMC}", r"\textbf{IBP-HMC}"]
+MODEL_PLOT_NAMES_ADV_DP = [r"\textbf{SGD}", r"\textbf{HMC}", r"\textbf{DP-HMC}", r"\textbf{IBP-HMC}", r"\textbf{IBP-DP-HMC}"]
+UNCERTAINTY_METRICS_NAMES = [r"\textbf{IN-DISTRIBUTION AUROC}",
+                             r"\textbf{IN-DISTRIBUTION ECE}",
+                             r"\textbf{OUT-OF-DISTRIBUTION AUROC}",
+                             r"\textbf{OUT-OF-DISTRIBUTION ECE}"]
