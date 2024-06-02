@@ -23,12 +23,13 @@ def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
     # print the seed
     print(f"Using device: {TORCH_DEVICE}")
     conv_bnn = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
-    hyperparams = HyperparamsHMC(num_epochs=60, num_burnin_epochs=10, step_size=0.02, warmup_step_size=0.1, lf_steps=24, batch_size=218,
-                    num_chains=3, momentum_std=0.01, alpha=0.5, alpha_pre_trained=0.75, eps=0.01, step_size_pre_trained=0.001,
-                    decay_epoch_start=40, lr_decay_magnitude=0.5, eps_warmup_epochs=20, alpha_warmup_epochs=16, run_dp=False,
-                    grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, prior_std=1, criterion=BCEWithLogitsLoss())
+    hyperparams = HyperparamsHMC(
+        num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
+        warmup_step_size=0.25, momentum_std=0.002, prior_std=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=0.01,
+        run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, criterion=BCEWithLogitsLoss()
+    )
 
-    attack_type = AttackType.PGD
+    attack_type = AttackType.IBP
     model_name = "ADV-DP-HMC" if hyperparams.run_dp else "ADV-HMC"
     fname = "hmc_dp_pneumonia_mnist" if hyperparams.run_dp else "hmc_pneumonia_mnist"
     if attack_type == AttackType.FGSM:
@@ -80,13 +81,13 @@ def ablation_study():
     conv_net = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
     hyperparams = HyperparamsHMC(
         num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
-        warmup_step_size=0.25, momentum_std=0.002, prior_mu=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975,
+        warmup_step_size=0.25, momentum_std=0.002, prior_std=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=0.01,
         run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1,criterion=BCEWithLogitsLoss()
     )
 
     attack_type = AttackType.IBP
     testing_eps = 0.01
-    epsilons = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]
+    epsilons = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15, 0.17, 0.19, 0.21]
     clip_bounds = [0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.025, 0.01]
     result_dict = {"eps": [], "dp": []}
     for curr_eps in epsilons:
@@ -123,7 +124,7 @@ def ablation_study():
         yaml.dump(result_dict, f)
 
 TRAIN_DATA, TEST_DATA = load_pneumonia_mnist()
-# adv_dp_experiment(write_results=True, save_model=False, for_adv_comparison=True)
+adv_dp_experiment(write_results=False, save_model=False, for_adv_comparison=False)
 # hmc_dp_experiment(write_results=False, for_adv_comparison=False, save_model=False)
 # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=True)
-ablation_study()
+# ablation_study()
