@@ -64,8 +64,8 @@ class AdvHamiltonianMonteCarlo:
 
         # q -> current net params, current q -> start net params
         root_dir = __file__.rsplit('/', 3)[0]
-        init_file = (os.path.abspath(root_dir + "pre_trained/vanilla_network_ibp_dp.pt") if self.hps.run_dp
-                     else os.path.abspath(root_dir + "pre_trained/vanilla_network_ibp.pt"))
+        init_file = (os.path.abspath(root_dir + "/pre_trained/vanilla_network_ibp_dp.pt") if self.hps.run_dp
+                     else os.path.abspath(root_dir + "/pre_trained/vanilla_network_ibp.pt"))
         current_q = self.__init_params(from_trained=from_trained, path=init_file)
 
         running_loss_ce, running_loss_ce_adv = 0.0, 0.0
