@@ -2,15 +2,18 @@ import torch
 import yaml
 
 from common.attack_types import AttackType
-from common.dataset_utils import load_fashion_mnist, load_mnist
+from common.dataset_utils import (get_marginal_distributions,
+                                  load_fashion_mnist, load_mnist)
 from deterministic.hyperparams import Hyperparameters
 from deterministic.vanilla_net import VanillaNetMnist
 from experiments.experiment_utils import (compute_metrics_hmc,
-                                          compute_metrics_sgd,
+                                          compute_metrics_sgd, load_samples,
+                                          run_bnn_membership_inference_attack,
                                           run_experiment_adv_hmc,
                                           run_experiment_hmc,
                                           run_experiment_sgd)
 from globals import TORCH_DEVICE
+from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import ibp_eval
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.uncertainty import auroc, ood_detection_auc_and_ece
@@ -73,6 +76,39 @@ def dnn_experiment(write_results: bool = False, save_model: bool = False, for_ad
 
     compute_metrics_sgd(pipeline, TEST_DATA, testing_eps=0.075, write_results=write_results, dset_name="MNIST", for_adv_comparison=for_adv_comparison)
 
+def privacy_study():
+    ood_data_test = load_fashion_mnist()[1]
+    # Run the ablation study
+    conv_net = VanillaBnnMnist().to(TORCH_DEVICE)
+    hyperparams = HyperparamsHMC(
+        num_epochs=1, num_burnin_epochs=0, step_size=0.01, lf_steps=3, batch_size=20000, num_chains=3, decay_epoch_start=50,
+        lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=15, alpha_warmup_epochs=0,
+        eps_warmup_epochs=0, alpha=0.993, alpha_pre_trained=0.75, step_size_pre_trained=0.001, eps=0.075,
+        run_dp=True, grad_clip_bound=0.05, acceptance_clip_bound=0.05, tau_g=2, tau_l=2
+    )
+
+    testing_eps = 0.075
+    num_epochs = [1, 3 , 5, 7, 9, 11, 15, 19, 25, 30]
+    result_dict = {"eps": [], "dp": []}
+    for k in num_epochs:
+        # update hps
+        hyperparams.num_epochs = k
+        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        hyperparams.eps = testing_eps
+        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        result_dict["eps"].append({"k": k,
+                                   "std_acc": std_acc,
+                                   "ibp_acc": ibp_acc,
+                                   "id_auroc": id_auroc,
+                                   "ood_auroc": ood_auroc})
+        print(f"Finished for epsilon: {k}")
+
+    with open("experiments/ablation_mnist.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(result_dict, f)
+
 def ablation_study():
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
@@ -85,8 +121,8 @@ def ablation_study():
     )
 
     testing_eps = 0.075
-    epsilons = [0.075] # 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
-    clip_bounds = [] # [0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.025, 0.01]
+    epsilons = [0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
+    clip_bounds = [0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.025, 0.01]
     result_dict = {"eps": [], "dp": []}
     for curr_eps in epsilons:
         # update hps
@@ -118,11 +154,30 @@ def ablation_study():
                                   "id_auroc": id_auroc,
                                   "ood_auroc": ood_auroc})
         print(f"Finished for clip bound: {clip_bound}")
-    with open("experiments/ablation_mnist.yaml", "w", encoding="utf-8") as f:
+    with open("experiments/privacy_mnist.yaml", "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
+
+def membership_inference_bnn_experiment(adv: False, load_from_file: False):
+    moments = get_marginal_distributions(TRAIN_DATA)
+    target_network = VanillaBnnMnist().to(TORCH_DEVICE)
+    hyperparams = HyperparamsHMC(num_epochs=20, num_burnin_epochs=5, step_size=0.01, lf_steps=120, criterion=torch.nn.CrossEntropyLoss(),
+                                 batch_size=100, momentum_std=0.01)
+
+    hmc, posterior_samples = AdvHamiltonianMonteCarlo(target_network, hyperparams, AttackType.IBP), None
+    if load_from_file:
+        savedir = "experiments/posterior_samples/ibp_hmc_mnist/"
+        if adv:
+            savedir = "experiments/posterior_samples/ibp_hmc_dp_mnist/"
+        posterior_samples = load_samples(savedir)
+    else:
+        hmc, posterior_samples = run_experiment_hmc(target_network, TRAIN_DATA, hyperparams)
+    accuracy = hmc.test_hmc_with_average_logits(TRAIN_DATA, posterior_samples)
+    print(f"Accuracy of BNN with average logits on training set: {accuracy} %")
+
+    run_bnn_membership_inference_attack(TRAIN_DATA, target_network, moments, posterior_samples)
 
 TRAIN_DATA, TEST_DATA = load_mnist()
 # adv_dp_experiment(write_results=True, save_model=True, for_adv_comparison=False)
 # hmc_dp_experiment(write_results=False, for_adv_comparison=False, save_model=False)
 # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
-ablation_study()
+# ablation_study()

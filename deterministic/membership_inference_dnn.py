@@ -94,7 +94,7 @@ class MembershipInferenceAttack:
                     loss.backward()
                     optimizer.step()
 
-    def test_attack_models_dnn(self, test_dset: Dataset) -> float:
+    def test_attack_models(self, test_dset: Dataset) -> float:
         #* batch size of 1 for simplicity
         attack_test_loader = DataLoader(test_dset, batch_size=1, shuffle=True)
         for attack_model in self.attack_models.values():

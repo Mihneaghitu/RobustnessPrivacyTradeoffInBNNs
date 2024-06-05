@@ -25,6 +25,6 @@ class MembershipInferenceAttackBnn(MembershipInferenceAttack):
 
 class RecordSynthesizerBnn(RecordSynthesizer):
     def __init__(self, target_net: VanillaBnnLinear, num_classes: int, distrib_moments: Tuple[torch.Tensor, torch.Tensor],
-                 fwd_func: Callable[[torch.Tensor], torch.Tensor], posterior_samples: torch.Tensor, pos_training_samples: int = 2500) -> None:
+                 fwd_func: Callable[[torch.Tensor], torch.Tensor], posterior_samples: torch.Tensor, pos_training_samples: int = 5000) -> None:
         super().__init__(target_net, num_classes, distrib_moments, fwd_func, pos_training_samples)
         self.posterior_samples = posterior_samples

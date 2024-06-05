@@ -83,6 +83,13 @@ def plot_metrics_individual(dataset_name: str = "MNIST", metric_type = "accuracy
 def plot_ablation(dset_name: str = "MNIST") -> None:
     plt.rcParams['text.usetex'] = True
     fname = "ablation_" + dset_name.lower() + ".yaml"
+    lims_dp, lims_eps = None, None
+    if dset_name == "MNIST":
+        lims_dp = {"acc": ((70, 90), (30, 60)), "unc": ((0.85, 1.01), (0.7, 1.0))}
+        lims_eps = {"acc": ((75, 90), (30, 60)), "unc": ((0.85, 1.05), (0.7, 1.0))}
+    else:
+        lims_dp = {"acc": ((60, 90), (60, 90)), "unc": ((0.6, 1.05), (0.3, 0.85))}
+        lims_eps = {"acc": ((70, 100), (70, 100)), "unc": ((0.8, 1.0), (0.2, 0.8))}
     with open(fname, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
         dp_dicts = config["dp"]
@@ -96,59 +103,61 @@ def plot_ablation(dset_name: str = "MNIST") -> None:
     titles_acc_eps = [r"\textbf{Standard Accuracy vs. Epsilon Increase}", r"\textbf{IBP Accuracy vs. Epsilon Increase}"]
     titles_unc_dp = [r"\textbf{ID AUROC vs. Clip Bound Decrease}", r"\textbf{OOD AUROC vs. Clip Bound Decrease}"]
     titles_unc_eps = [r"\textbf{ID AUROC vs. Epsilon Increase}", r"\textbf{OOD AUROC vs. Epsilon Increase}"]
-    __plot_ablation_accs(dp_std_accs, dp_ibp_accs, dp_x_axis, (40, 100), "Gradient Clip Bound", titles_acc_dp, reverse_x_axis=True)
-    __plot_ablation_uncertainty(dp_id_auroc, dp_ood_auroc, dp_x_axis, "Gradient Clip Bound", titles_unc_dp, reverse_x_axis=True)
+    __plot_ablation_accs(dp_std_accs, dp_ibp_accs, dp_x_axis, lims_dp["acc"], "Gradient Clip Bound", titles_acc_dp, reverse_x_axis=True)
+    __plot_ablation_uncertainty(dp_id_auroc, dp_ood_auroc, dp_x_axis, "Gradient Clip Bound", lims_dp["unc"], titles_unc_dp, reverse_x_axis=True)
 
     eps_x_axis = [ed["value"] for ed in eps_dicts]
     eps_std_accs, eps_ibp_accs = [ed["std_acc"] for ed in eps_dicts], [ed["ibp_acc"] for ed in eps_dicts]
     eps_id_auroc, eps_ood_auroc = [ed["id_auroc"] for ed in eps_dicts], [ed["ood_auroc"] for ed in eps_dicts]
 
-    __plot_ablation_accs(eps_std_accs, eps_ibp_accs, eps_x_axis, (40, 100), "Epsilon", titles_acc_eps)
-    __plot_ablation_uncertainty(eps_id_auroc, eps_ood_auroc, eps_x_axis, "Epsilon", titles_unc_eps)
+    __plot_ablation_accs(eps_std_accs, eps_ibp_accs, eps_x_axis, lims_eps["acc"], "Epsilon", titles_acc_eps)
+    __plot_ablation_uncertainty(eps_id_auroc, eps_ood_auroc, eps_x_axis, "Epsilon", lims_eps["unc"], titles_unc_eps)
 
 def __plot_ablation_accs(std_accs: np.ndarray, ibp_accs: np.ndarray, val_x_axis: np.ndarray, y_lims: tuple, x_label: str,
                          titles: list, reverse_x_axis: bool = False):
-    fig, axs = plt.subplots(1, 2, figsize=(12, 8))
+    fig, axs = plt.subplots(1, 2, figsize=(14, 5))
     axs[0].plot(val_x_axis, std_accs, label="Standard Accuracy", color="blue")
     axs[1].plot(val_x_axis, ibp_accs, label="IBP Accuracy", color="red")
-    for ax, ttl in zip(axs, titles):
-        ax.set_ylim(y_lims[0], y_lims[1])
+    for ax, ttl, ylim in zip(axs, titles, y_lims):
+        ax.set_ylim(ylim[0], ylim[1])
         # ax.set_xlim(val_x_axis[0] * 1.02, val_x_axis[-1] * 1.02)
-        ax.set_yticks(np.arange(y_lims[0], y_lims[1] + 10, 10))
-        ax.set_xlabel(x_label, fontsize=13)
-        ax.set_ylabel("Accuracy", fontsize=13)
-        ax.hlines(np.arange(y_lims[0], y_lims[1] + 10, 10), val_x_axis[0], val_x_axis[-1], colors="gray", alpha=0.3)
+        ax.set_yticks(np.arange(ylim[0], ylim[1] + 10, 10))
+        ax.set_xticks(np.linspace(val_x_axis[0], val_x_axis[-1], 7))
+        ax.set_xlabel(x_label, fontsize=20)
+        ax.set_ylabel(r"Accuracy(\%)", fontsize=20)
+        ax.hlines(np.arange(ylim[0], ylim[1] + 10, 10), val_x_axis[0], val_x_axis[-1], colors="gray", alpha=0.3)
         ax.set_title(ttl, fontsize=25)
         ax.legend()
         if reverse_x_axis:
-            ax.set_xlim(val_x_axis[-1] * 1.02, val_x_axis[0] * 1.02)
+            ax.set_xlim(val_x_axis[-1] * 1.05, val_x_axis[0] * 0.95)
         else:
-            ax.set_xlim(val_x_axis[0] * 1.02, val_x_axis[-1] * 1.02)
+            ax.set_xlim(val_x_axis[0] * 0.95, val_x_axis[-1] * 1.05)
     fig.tight_layout()
     plt.show()
 
-def __plot_ablation_uncertainty(id_auroc: np.ndarray, ood_auroc: np.ndarray, val_x_axis: np.ndarray, x_label: str,
+def __plot_ablation_uncertainty(id_auroc: np.ndarray, ood_auroc: np.ndarray, val_x_axis: np.ndarray, x_label: str, ylims: tuple,
                                 titles: list, reverse_x_axis: bool = False):
-    fig, axs = plt.subplots(1, 2, figsize=(12, 8))
+    fig, axs = plt.subplots(1, 2, figsize=(14, 5))
     axs[0].plot(val_x_axis, id_auroc, label="In-Distribution AUROC", color="blue")
     axs[1].plot(val_x_axis, ood_auroc, label="Out-Of-Distribution AUROC", color="red")
-    for ax, ttl in zip(axs, titles):
-        ax.set_ylim(0, 1)
+    for ax, ttl, ylim in zip(axs, titles, ylims):
+        ax.set_ylim(ylim[0], ylim[1])
         # ax.set_xlim(val_x_axis[0] * 1.02, val_x_axis[-1] * 1.02)
-        ax.set_yticks(np.arange(0.2, 0.9, 0.1))
-        ax.set_xlabel(x_label, fontsize=13)
-        ax.set_ylabel("Accuracy", fontsize=13)
+        ax.set_xticks(np.linspace(val_x_axis[0], val_x_axis[-1], 7))
+        ax.set_yticks(np.arange(ylim[0], ylim[1], 0.1))
+        ax.set_xlabel(x_label, fontsize=20)
+        ax.set_ylabel("Value", fontsize=20)
         ax.hlines(np.arange(0, 1.1, 0.1), val_x_axis[0], val_x_axis[-1], colors="gray", alpha=0.3)
         if reverse_x_axis:
-            ax.set_xlim(val_x_axis[-1] * 1.02, val_x_axis[0] * 1.02)
+            ax.set_xlim(val_x_axis[-1] * 1.02, val_x_axis[0] * 0.7)
         else:
-            ax.set_xlim(val_x_axis[0] * 1.02, val_x_axis[-1] * 1.02)
+            ax.set_xlim(val_x_axis[0] * 0.95, val_x_axis[-1] * 1.05)
         ax.legend()
         ax.set_title(ttl, fontsize=25)
     fig.tight_layout()
     plt.show()
 
-plot_ablation("PNEUMONIA")
+plot_ablation("MNIST")
 # plot_metrics_individual(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=True, metric_type="uncertainty")
 # plot_metrics()
 # plot_metrics(metric_type="uncertainty")
