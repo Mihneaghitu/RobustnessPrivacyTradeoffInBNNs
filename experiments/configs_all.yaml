@@ -129,14 +129,14 @@ PNEUMONIA_MNIST:
     decay_epoch_start: 25
     warmup_itr_start: 3000
   HMC:
-    num_epochs: 88
-    num_burnin_epochs: 5
-    step_size: 0.008
+    num_epochs: 150
+    num_burnin_epochs: 10
+    step_size: 0.0175
     lf_steps: 24
     batch_size: 218
     criterion: BCEWithLogitsLoss
-    num_chains: 2
-    decay_epoch_start: 60
+    num_chains: 1
+    decay_epoch_start: 40
     lr_decay_magnitude: 0.5
     warmup_step_size: 0.1
     momentum_std: 0.01
