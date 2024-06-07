@@ -113,11 +113,11 @@ MNIST:
     tau_l: 0.05
 PNEUMONIA_MNIST:
   SGD:
-    num_epochs: 98
-    lr: 0.09
+    num_epochs: 30
+    lr: 0.07
     criterion: BCEWithLogitsLoss
     lr_decay_magnitude: 0.005
-    batch_size: 109
+    batch_size: 218
     warmup_lr: 0.1
     run_dp: false
     grad_norm_bound: 0.5
@@ -154,13 +154,13 @@ PNEUMONIA_MNIST:
     tau_g: 0.1
     tau_l: 0.1
   HMC-DP:
-    num_epochs: 60
+    num_epochs: 150
     num_burnin_epochs: 8
-    step_size: 0.07
+    step_size: 0.05
     lf_steps: 24
     batch_size: 218
     criterion: BCEWithLogitsLoss
-    num_chains: 3
+    num_chains: 1
     decay_epoch_start: 40
     lr_decay_magnitude: 0.5
     warmup_step_size: 0.1

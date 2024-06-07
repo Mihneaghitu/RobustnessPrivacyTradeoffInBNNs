@@ -110,11 +110,11 @@ MNIST:
     tau_l: 0.05
 PNEUMONIA_MNIST:
   SGD:
-    num_epochs: 98
-    lr: 0.09
+    num_epochs: 30
+    lr: 0.07
     criterion: BCEWithLogitsLoss
     lr_decay_magnitude: 0.005
-    batch_size: 109
+    batch_size: 218
     warmup_lr: 0.1
     run_dp: false
     grad_norm_bound: 0.5

@@ -24,7 +24,8 @@ from deterministic.uncertainty import auroc as auroc_dnn
 from deterministic.uncertainty import ece as ece_dnn
 from deterministic.uncertainty import \
     ood_detection_auc_and_ece as detect_ood_dnn
-from deterministic.vanilla_net import VanillaNetLinear, VanillaNetMnist
+from deterministic.vanilla_net import (ConvNetPneumoniaMnist, VanillaNetLinear,
+                                       VanillaNetMnist)
 from globals import (MODEL_NAMES_ADV, MODEL_NAMES_ADV_DP, ROOT_FNAMES_ADV,
                      ROOT_FNAMES_ADV_DP, TORCH_DEVICE, AdvDpModel, AdvModel)
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
@@ -266,7 +267,7 @@ def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
 
     curr_dir = __file__.rsplit('/', 1)[0]
     config_file = curr_dir + ("/configs_adv.yaml" if for_adv_comparison else "/configs_all.yaml")
-    net_file = curr_dir + "/posterior_samples/vanilla_network.pt"
+    net_file = curr_dir + "/posterior_samples/"
     model_name = "SGD"
 
     with open(config_file, 'r', encoding="utf-8") as f:
@@ -275,7 +276,15 @@ def test_dnn_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
 
     # This is saved as a string, but inside the class it's a module, so to avoid any weirdness and because it's optional anyways, we remove it
     del hps_config['criterion']
-    hps, net = Hyperparameters(**hps_config), VanillaNetMnist().to(TORCH_DEVICE)
+    hps, net = Hyperparameters(**hps_config), None
+    if dset_name == "MNIST":
+        # this can be a new object because the parameters are the posterior samples anyways
+        net = VanillaNetMnist().to(TORCH_DEVICE)
+        net_file += "vanilla_network.pt"
+    elif dset_name == "PNEUMONIA_MNIST":
+        net = ConvNetPneumoniaMnist().to(TORCH_DEVICE)
+        hps.criterion = torch.nn.BCEWithLogitsLoss()
+        net_file += "conv_net_pneumonia_mnist.pt"
     net.load_state_dict(torch.load(net_file))
     pipeline = PipelineDnn(net, hps)
 
@@ -323,5 +332,5 @@ def get_delta_dp_bound(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> fl
 
     return float(delta.item())
 
-# test_hmc_from_file(load_pneumonia_mnist()[1], AdvDpModel.IBP_HMC_DP, dset_name="PNEUMONIA_MNIST", testing_eps=0.075)
-# test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD, testing_eps=0.075)
+# test_hmc_from_file(load_pneumonia_mnist()[1], AdvModel.FGSM_HMC, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)
+# test_dnn_from_file(load_pneumonia_mnist()[1], AdvDpModel.SGD, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)
