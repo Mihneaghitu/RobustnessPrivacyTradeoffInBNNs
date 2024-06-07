@@ -146,10 +146,10 @@ PNEUMONIA_MNIST:
     step_size_pre_trained: 0
     eps: 0.1
     run_dp: false
-    grad_clip_bound: 0.4
-    acceptance_clip_bound: 0.4
-    tau_g: 0.2
-    tau_l: 0.2
+    grad_clip_bound: 0.5
+    acceptance_clip_bound: 0.5
+    tau_g: 0.1
+    tau_l: 0.1
   ADV-HMC (FGSM):
     num_epochs: 60
     num_burnin_epochs: 10
