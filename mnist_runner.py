@@ -1,3 +1,6 @@
+import os
+import sys
+
 import torch
 import yaml
 
@@ -77,44 +80,41 @@ def dnn_experiment(write_results: bool = False, save_model: bool = False, for_ad
     compute_metrics_sgd(pipeline, TEST_DATA, testing_eps=0.075, write_results=write_results, dset_name="MNIST", for_adv_comparison=for_adv_comparison)
 
 def privacy_study():
+    k = int(sys.argv[1])
+    single_privacy_study(k)
+
+def single_privacy_study(k):
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
     conv_net = VanillaBnnMnist().to(TORCH_DEVICE)
     hyperparams = HyperparamsHMC(
-        num_epochs=1, num_burnin_epochs=0, step_size=0.01, lf_steps=10, batch_size=6000, num_chains=3, decay_epoch_start=50,
-        lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=15, alpha_warmup_epochs=0,
-        eps_warmup_epochs=0, alpha=0.993, alpha_pre_trained=0.75, step_size_pre_trained=0.001, eps=0.075,
-        run_dp=True, grad_clip_bound=0.05, acceptance_clip_bound=0.05, tau_g=4, tau_l=4
+        num_epochs=k, num_burnin_epochs=k//3, step_size=0.01, lf_steps=10, batch_size=6000, num_chains=1, decay_epoch_start=50,
+        lr_decay_magnitude=0.5, warmup_step_size=0.25, momentum_std=0.0015, prior_mu=0.0, prior_std=10, alpha_warmup_epochs=k//3,
+        eps_warmup_epochs=k//3, alpha=0.99, alpha_pre_trained=0.75, step_size_pre_trained=0.05, eps=0.075,
+        run_dp=True, grad_clip_bound=0.1, acceptance_clip_bound=0.1, tau_g=2, tau_l=2
     )
 
     testing_eps = 0.075
-    num_epochs = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
-    dirnames = []
-    result_dict = {"num_epochs": []}
-    save_dir = __file__.rsplit('/', 1)[0] + "experiments/privacy_study/"
-    for k in num_epochs:
-        dirnames.append(save_dir + f"k{k}/")
-    for k, dirname in zip(num_epochs, dirnames):
-        # update hps
-        hyperparams.num_epochs = k
-        if k >= 3:
-            hyperparams.num_burnin_epochs = hyperparams.eps_warmup_epochs = hyperparams.alpha_warmup_epochs = 2 * k // 3
-        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
-        save_samples(posterior_samples, dirname)
-        hyperparams.eps = testing_eps
-        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
-        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
-        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
-        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
-        result_dict["num_epochs"].append({"k": k,
-                                   "std_acc": std_acc,
-                                   "ibp_acc": ibp_acc,
-                                   "id_auroc": id_auroc,
-                                   "ood_auroc": ood_auroc})
-        print(f"Finished for k={k}")
+    save_dir = __file__.rsplit('/', 1)[0] + "experiments/privacy_study/" + f"k{k}/"
+    # run
+    hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+    save_samples(posterior_samples, save_dir)
+    hyperparams.eps = testing_eps
+    std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+    ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
+    id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
+    ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
 
-    with open("experiments/privacy_study.yaml", "w", encoding="utf-8") as f:
-        yaml.dump(result_dict, f)
+    fname = "experiments/privacy_study.yaml"
+    if not os.path.exists(fname):
+        open(fname, "a", encoding="utf-8").close()
+    with open(fname, "r", encoding="utf-8") as f:
+        results = yaml.safe_load(f)
+    if results is None:
+        results = {"MNIST": [], "PNEUMONIA_MNIST": []}
+    results["MNIST"].append({"num_epochs": k, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
+    with open(fname, "w", encoding="utf-8") as f:
+        yaml.dump(results, f)
 
 def ablation_study():
     ood_data_test = load_fashion_mnist()[1]
