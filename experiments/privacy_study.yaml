@@ -1,56 +1,112 @@
-num_epochs:
-- ibp_acc: 36.51
-  id_auroc: 0.9661
-  k: 1
-  ood_auroc: 0.5
-  std_acc: 75.12
-- ibp_acc: 41.97
+MNIST:
+- ibp_acc: 42.28
   id_auroc: 0.9669
-  k: 3
-  ood_auroc: 0.845
-  std_acc: 78.86
-- ibp_acc: 44.66
-  id_auroc: 0.9669
-  k: 5
+  num_epochs: 1
   ood_auroc: 0.8451
   std_acc: 79.04
+- ibp_acc: 41.41
+  id_auroc: 0.9669
+  num_epochs: 3
+  ood_auroc: 0.8451
+  std_acc: 78.88
+- ibp_acc: 42.04
+  id_auroc: 0.9669
+  num_epochs: 5
+  ood_auroc: 0.845
+  std_acc: 78.87
+- ibp_acc: 41.36
+  id_auroc: 0.9669
+  num_epochs: 7
+  ood_auroc: 0.8451
+  std_acc: 78.88
 - ibp_acc: 40.84
   id_auroc: 0.9669
-  k: 7
-  ood_auroc: 0.845
+  num_epochs: 9
+  ood_auroc: 0.8451
+  std_acc: 78.89
+- ibp_acc: 40.82
+  id_auroc: 0.9669
+  num_epochs: 11
+  ood_auroc: 0.8451
   std_acc: 79.04
-- ibp_acc: 43.98
+- ibp_acc: 41.02
   id_auroc: 0.9669
-  k: 9
-  ood_auroc: 0.845
-  std_acc: 78.84
-- ibp_acc: 44.83
+  num_epochs: 13
+  ood_auroc: 0.8451
+  std_acc: 79.05
+- ibp_acc: 41.11
   id_auroc: 0.9669
-  k: 11
-  ood_auroc: 0.845
-  std_acc: 79.03
-- ibp_acc: 46.71
-  id_auroc: 0.9669
-  k: 13
-  ood_auroc: 0.845
-  std_acc: 78.85
-- ibp_acc: 44.01
-  id_auroc: 0.9669
-  k: 15
-  ood_auroc: 0.845
-  std_acc: 79.02
-- ibp_acc: 42.34
-  id_auroc: 0.9669
-  k: 17
+  num_epochs: 15
   ood_auroc: 0.8452
   std_acc: 79.04
-- ibp_acc: 44.6
+- ibp_acc: 41.08
   id_auroc: 0.9669
-  k: 19
-  ood_auroc: 0.845
-  std_acc: 78.85
-- ibp_acc: 40.94
+  num_epochs: 17
+  ood_auroc: 0.8453
+  std_acc: 79.05
+- ibp_acc: 40.82
   id_auroc: 0.9669
-  k: 21
-  ood_auroc: 0.8451
-  std_acc: 78.86
+  num_epochs: 19
+  ood_auroc: 0.8453
+  std_acc: 79.04
+- ibp_acc: 40.76
+  id_auroc: 0.9669
+  num_epochs: 21
+  ood_auroc: 0.8453
+  std_acc: 78.88
+PNEUMONIA_MNIST:
+- ibp_acc: 62.5
+  id_auroc: 0.506
+  num_epochs: 1
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6216
+  num_epochs: 3
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6214
+  num_epochs: 5
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6213
+  num_epochs: 7
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6229
+  num_epochs: 9
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6228
+  num_epochs: 11
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6245
+  num_epochs: 13
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6268
+  num_epochs: 15
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6267
+  num_epochs: 17
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.6259
+  num_epochs: 19
+  ood_auroc: 0.5
+  std_acc: 62.5
+- ibp_acc: 62.5
+  id_auroc: 0.621
+  num_epochs: 21
+  ood_auroc: 0.5
+  std_acc: 62.5

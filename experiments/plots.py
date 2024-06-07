@@ -4,6 +4,7 @@ sys.path.append("../")
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+from experiment_utils import get_delta_dp_bound
 
 from globals import (ACCURACY_METRICS, ACCURACY_METRICS_NAMES,
                      MODEL_PLOT_NAMES_ADV, MODEL_PLOT_NAMES_ADV_DP,
@@ -89,7 +90,7 @@ def plot_ablation(dset_name: str = "MNIST") -> None:
         lims_eps = {"acc": ((75, 90), (30, 60)), "unc": ((0.85, 1.05), (0.7, 1.0))}
     else:
         lims_dp = {"acc": ((60, 90), (60, 90)), "unc": ((0.6, 1.05), (0.3, 0.85))}
-        lims_eps = {"acc": ((70, 100), (70, 100)), "unc": ((0.8, 1.0), (0.2, 0.8))}
+        lims_eps = {"acc": ((50, 90), (50, 90)), "unc": ((0.4, 1.0), (0.2, 0.8))}
     with open(fname, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
         dp_dicts = config["dp"]
@@ -157,7 +158,40 @@ def __plot_ablation_uncertainty(id_auroc: np.ndarray, ood_auroc: np.ndarray, val
     fig.tight_layout()
     plt.show()
 
-plot_ablation("MNIST")
+def plot_privacy_study(dset_name: str = "MNIST"):
+    plt.rcParams['text.usetex'] = True
+    with open("privacy_study.yaml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+        results = config[dset_name]
+
+    epsilon = 15
+    lf_steps, num_chains, tau_g, tau_l = 10, 1, 2, 2
+    epochs_trained = [r["num_epochs"] for r in results]
+    deltas = [get_delta_dp_bound(epsilon, num_chains, ne, lf_steps, tau_g, tau_l) for ne in epochs_trained]
+    oods, ibps, stds = [r["ood_auroc"] for r in results], [r["ibp_acc"] / 100 for r in results], [r["std_acc"] / 100 for r in results]
+    print(ibps)
+    # plot them on 1 single graph (4 lines)
+    plt.plot(epochs_trained, deltas, label=r"DP-$\delta$", color="black", linewidth=5)
+    plt.plot(epochs_trained, oods, label="OOD AUROC", color="red", linewidth=3)
+    plt.plot(epochs_trained, ibps, label="IBP Accuracy", color="blue", linewidth=3)
+    if dset_name == "MNIST":
+        plt.plot(epochs_trained, stds, label="Standard Accuracy", color="green", linewidth=3)
+        plt.title(r"\textbf{MNIST model properties (DP-$\mathbf{\epsilon = 15}$})", fontsize=35)
+    else:
+        plt.title(r"\textbf{PneumoniaMNIST model properties (DP-$\mathbf{\epsilon = 10}$})", fontsize=35)
+        plt.plot(epochs_trained, stds, label="Standard Accuracy", color="green", linewidth=3, alpha=1, linestyle="--")
+    plt.ylabel(r"\textbf{Value}", fontsize=28)
+    plt.xlabel(r"\textbf{Number of epochs trained}", fontsize=28)
+    plt.xticks(epochs_trained, fontsize=15)
+    hlines = np.arange(0, 1.1, 0.1)
+    plt.hlines(hlines, epochs_trained[0], epochs_trained[-1], colors="gray", alpha=0.3)
+    plt.yticks(hlines, fontsize=15)
+
+    plt.legend(prop={'size': 18})
+    plt.show()
+
+plot_privacy_study("PNEUMONIA_MNIST")
+# plot_ablation("PNEUMONIA")
 # plot_metrics_individual(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=True, metric_type="uncertainty")
 # plot_metrics()
 # plot_metrics(metric_type="uncertainty")

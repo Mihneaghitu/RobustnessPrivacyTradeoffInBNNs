@@ -324,7 +324,6 @@ def run_bnn_membership_inference_attack(train_data: Dataset, net: VanillaBnnLine
 def get_delta_dp_bound(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> float:
     mu = (epochs / (2 * tau_l ** 2)) + 2 * (epochs * (lf_steps + 1) / (2 * tau_g ** 2))
     mu *= num_chains
-    print("Mu is", mu)
     eps_dp, mu = torch.tensor(eps_dp), torch.tensor(mu)
     first_term = torch.erfc((eps_dp - mu) / (2 * torch.sqrt(mu)))
     second_term = torch.exp(eps_dp) * torch.erfc((eps_dp + mu) / (2 * torch.sqrt(mu)))
