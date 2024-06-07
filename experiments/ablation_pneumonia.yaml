@@ -60,58 +60,58 @@ dp:
   std_acc: 62.5
   value: 0.01
 eps:
-- ibp_acc: 70.1923076923077
-  id_auroc: 0.8856
-  ood_auroc: 0.6564
-  std_acc: 79.6474358974359
+- ibp_acc: 84.2948717948718
+  id_auroc: 0.922
+  ood_auroc: 0.3621
+  std_acc: 84.61538461538461
   value: 0.01
-- ibp_acc: 0.0
+- ibp_acc: 72.916
   id_auroc: 0.9252
   ood_auroc: 0.4275
-  std_acc: 84.61538461538461
+  std_acc: 77.403
   value: 0.03
-- ibp_acc: 0.0
-  id_auroc: 0.9272
-  ood_auroc: 0.3642
-  std_acc: 84.77564102564102
+- ibp_acc: 69.39
+  id_auroc: 0.7982
+  ood_auroc: 0.5533
+  std_acc: 72.59
   value: 0.05
-- ibp_acc: 0.0
-  id_auroc: 0.9272
-  ood_auroc: 0.4255
-  std_acc: 85.25641025641026
+- ibp_acc: 60.89
+  id_auroc: 0.7399
+  ood_auroc: 0.6977
+  std_acc: 61.21
   value: 0.07
-- ibp_acc: 0.0
-  id_auroc: 0.9195
-  ood_auroc: 0.4289
-  std_acc: 84.77564102564102
+- ibp_acc: 62.5
+  id_auroc: 0.6891
+  ood_auroc: 0.506
+  std_acc: 62.5
   value: 0.09
-- ibp_acc: 4.8076923076923075
-  id_auroc: 0.9202
-  ood_auroc: 0.3733
-  std_acc: 83.33333333333333
+- ibp_acc: 62.5
+  id_auroc: 0.6046
+  ood_auroc: 0.5
+  std_acc: 62.5
   value: 0.11
-- ibp_acc: 0.0
-  id_auroc: 0.9217
-  ood_auroc: 0.4282
-  std_acc: 84.77564102564102
+- ibp_acc: 62.5
+  id_auroc: 0.6126
+  ood_auroc: 0.7016
+  std_acc: 62.5
   value: 0.13
-- ibp_acc: 0.0
-  id_auroc: 0.9244
-  ood_auroc: 0.4221
-  std_acc: 84.93589743589743
+- ibp_acc: 62.5
+  id_auroc: 0.483
+  ood_auroc: 0.7064
+  std_acc: 62.5
   value: 0.15
-- ibp_acc: 0.0
-  id_auroc: 0.923
-  ood_auroc: 0.436
-  std_acc: 84.13461538461539
+- ibp_acc: 62.5
+  id_auroc: 0.6922
+  ood_auroc: 0.6922
+  std_acc: 62.5
   value: 0.17
-- ibp_acc: 0.0
-  id_auroc: 0.9241
-  ood_auroc: 0.4104
-  std_acc: 83.97435897435898
+- ibp_acc: 62.5
+  id_auroc: 0.4934
+  ood_auroc: 0.6903
+  std_acc: 62.5
   value: 0.19
-- ibp_acc: 0.0
-  id_auroc: 0.9201
-  ood_auroc: 0.4334
-  std_acc: 85.09615384615384
+- ibp_acc: 62.5
+  id_auroc: 0.5038
+  ood_auroc: 0.6322
+  std_acc: 62.5
   value: 0.21

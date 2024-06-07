@@ -1,5 +1,6 @@
 from enum import Enum
 
+import numpy as np
 import torch
 
 
@@ -12,6 +13,7 @@ TORCH_DEVICE = torch.device('cuda' if cuda_available else 'cpu')
 LOGGER_TYPE = LoggerType.STDOUT
 ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING = 42
 torch.manual_seed(ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING)
+np.random.seed(ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING)
 torch.backends.cudnn.deterministic = True
 
 # models for experiments

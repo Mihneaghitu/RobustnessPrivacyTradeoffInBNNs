@@ -211,7 +211,7 @@ PNEUMONIA_MNIST:
     batch_size: 218
     criterion: BCEWithLogitsLoss
     num_chains: 3
-    decay_epoch_start: 40
+    decay_epoch_start: 25
     lr_decay_magnitude: 0.5
     warmup_step_size: 0.25
     momentum_std: 0.002
@@ -220,8 +220,8 @@ PNEUMONIA_MNIST:
     alpha_warmup_epochs: 16
     eps_warmup_epochs: 20
     alpha: 0.975
-    alpha_pre_trained: 0.75
-    step_size_pre_trained: 0.001
+    alpha_pre_trained: 0
+    step_size_pre_trained: 0
     eps: 0.01
     run_dp: true
     grad_clip_bound: 0.5

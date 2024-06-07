@@ -10,7 +10,8 @@ from torch.utils.data import Dataset
 sys.path.append("../")
 
 from common.attack_types import AttackType
-from common.dataset_utils import load_fashion_mnist, load_mnist
+from common.dataset_utils import (load_fashion_mnist, load_mnist,
+                                  load_pneumonia_mnist)
 from common.datasets import GenericDataset
 from deterministic.attacks import \
     fgsm_test_set_attack as fgsm_test_set_attack_dnn
@@ -34,7 +35,7 @@ from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.membership_inference_bnn import \
     MembershipInferenceAttackBnn
 from probabilistic.HMC.uncertainty import auroc, ece, ood_detection_auc_and_ece
-from probabilistic.HMC.vanilla_bnn import (VanillaBnnFashionMnist,
+from probabilistic.HMC.vanilla_bnn import (ConvBnnPneumoniaMnist,
                                            VanillaBnnLinear, VanillaBnnMnist)
 
 
@@ -250,8 +251,9 @@ def test_hmc_from_file(test_set: Dataset, experiment_type: Union[AdvModel, AdvDp
     if dset_name == "MNIST":
         # this can be a new object because the parameters are the posterior samples anyways
         net = VanillaBnnMnist().to(TORCH_DEVICE)
-    elif dset_name == "FMNIST":
-        net = VanillaBnnFashionMnist().to(TORCH_DEVICE)
+    elif dset_name == "PNEUMONIA_MNIST":
+        net = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
+        hps.criterion = torch.nn.BCEWithLogitsLoss()
     hmc = AdvHamiltonianMonteCarlo(net, hps)
 
     compute_metrics_hmc(hmc, test_set, posterior_samples, testing_eps=testing_eps, write_results=False, model_name=model_name,
@@ -310,5 +312,16 @@ def run_bnn_membership_inference_attack(train_data: Dataset, net: VanillaBnnLine
     membership_inference_attack.test_attack_models(attack_models_dset)
     print("Finished testing attack models.")
 
-# test_hmc_from_file(load_mnist()[1], AdvDpModel.HMC, testing_eps=0.075)
+def get_delta_dp_bound(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> float:
+    mu = (epochs / (2 * tau_l ** 2)) + 2 * (epochs * (lf_steps + 1) / (2 * tau_g ** 2))
+    mu *= num_chains
+    print("Mu is", mu)
+    eps_dp, mu = torch.tensor(eps_dp), torch.tensor(mu)
+    first_term = torch.erfc((eps_dp - mu) / (2 * torch.sqrt(mu)))
+    second_term = torch.exp(eps_dp) * torch.erfc((eps_dp + mu) / (2 * torch.sqrt(mu)))
+    delta = 0.5 * (first_term - second_term)
+
+    return float(delta.item())
+
+# test_hmc_from_file(load_pneumonia_mnist()[1], AdvDpModel.IBP_HMC_DP, dset_name="PNEUMONIA_MNIST", testing_eps=0.075)
 # test_dnn_from_file(load_mnist()[1], AdvDpModel.SGD, testing_eps=0.075)

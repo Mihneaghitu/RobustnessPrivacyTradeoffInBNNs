@@ -11,8 +11,7 @@ from experiments.experiment_utils import (compute_metrics_hmc,
                                           run_bnn_membership_inference_attack,
                                           run_experiment_adv_hmc,
                                           run_experiment_hmc,
-                                          run_experiment_sgd,
-                                          save_samples)
+                                          run_experiment_sgd, save_samples)
 from globals import TORCH_DEVICE
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import ibp_eval
@@ -93,12 +92,12 @@ def privacy_study():
     dirnames = []
     result_dict = {"num_epochs": []}
     save_dir = __file__.rsplit('/', 1)[0] + "experiments/privacy_study/"
-    for k in num_epochs: 
+    for k in num_epochs:
         dirnames.append(save_dir + f"k{k}/")
     for k, dirname in zip(num_epochs, dirnames):
         # update hps
         hyperparams.num_epochs = k
-        if k >= 3: 
+        if k >= 3:
             hyperparams.num_burnin_epochs = hyperparams.eps_warmup_epochs = hyperparams.alpha_warmup_epochs = 2 * k // 3
         hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
         save_samples(posterior_samples, dirname)

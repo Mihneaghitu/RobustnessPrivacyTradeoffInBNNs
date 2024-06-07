@@ -78,6 +78,9 @@ def ood_detection_auc_and_ece(net: VanillaBnnLinear, id_data: Dataset, ood_data:
 
     threshold = 0.5 if net.get_num_classes() > 2 else 0.65
     id_pred_probs, ood_pred_probs = torch.max(id_mean_ppd, dim=1).values, torch.max(ood_mean_ppd, dim=1).values
+    if net.get_num_classes() <= 2:
+        id_pred_probs = torch.maximum(id_mean_ppd, 1 - id_mean_ppd)
+        ood_pred_probs = torch.maximum(ood_mean_ppd, 1 - ood_mean_ppd)
     y_pred = torch.cat((id_pred_probs, ood_pred_probs), dim=0)
     y_pred = torch.where(y_pred > threshold, torch.ones_like(y_pred, dtype=torch.float32), torch.zeros_like(y_pred, dtype=torch.float32))
     #! I.e. the softmax probabilities of the predicted classes should be close to 1 for in-distribution data and close to 0 for OOD data
