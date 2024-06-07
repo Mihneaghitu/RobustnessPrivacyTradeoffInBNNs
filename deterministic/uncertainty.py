@@ -82,6 +82,9 @@ def ood_detection_auc_and_ece(net: VanillaNetLinear, id_data: Dataset, ood_data:
 
     threshold = 0.5 if net.get_num_classes() > 2 else 0.65
     id_pred_probs, ood_pred_probs = torch.max(id_pred, dim=1).values, torch.max(ood_pred, dim=1).values
+    if net.get_num_classes() <= 2:
+        id_pred_probs = torch.maximum(id_pred, 1 - id_pred)
+        ood_pred_probs = torch.maximum(ood_pred, 1 - ood_pred)
     y_pred = torch.cat((id_pred_probs, ood_pred_probs), dim=0)
     y_pred = torch.where(y_pred > threshold, torch.ones_like(y_pred), torch.zeros_like(y_pred)) # if less than threshold, ood, else id
     y_true = torch.cat((torch.ones_like(id_pred_probs), torch.zeros_like(ood_pred_probs)), dim=0).to(TORCH_DEVICE)
