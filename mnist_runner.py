@@ -18,6 +18,7 @@ from experiments.experiment_utils import (compute_metrics_hmc,
 from globals import TORCH_DEVICE
 from probabilistic.HMC.adv_robust_dp_hmc import AdvHamiltonianMonteCarlo
 from probabilistic.HMC.attacks import ibp_eval
+from probabilistic.HMC.hmc import HamiltonianMonteCarlo
 from probabilistic.HMC.hyperparams import HyperparamsHMC
 from probabilistic.HMC.uncertainty import auroc, ood_detection_auc_and_ece
 from probabilistic.HMC.vanilla_bnn import VanillaBnnMnist
@@ -164,17 +165,23 @@ def ablation_study():
     with open("experiments/ablation_mnist.yaml", "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
 
-def membership_inference_bnn_experiment(adv: False, load_from_file: False):
+def membership_inference_bnn_experiment(adv: bool = False, load_dir: bool = False, attack_type: AttackType = None):
     moments = get_marginal_distributions(TRAIN_DATA)
     target_network = VanillaBnnMnist().to(TORCH_DEVICE)
-    hyperparams = HyperparamsHMC(num_epochs=20, num_burnin_epochs=5, step_size=0.01, lf_steps=120, criterion=torch.nn.CrossEntropyLoss(),
-                                 batch_size=100, momentum_std=0.01)
+    hyperparams = HyperparamsHMC(
+        num_epochs=60, num_burnin_epochs=25, step_size=0.01, warmup_step_size=0.2, lf_steps=120, batch_size=500, num_chains=3,
+        momentum_std=0.001, alpha=0.993, alpha_pre_trained=0.75, eps=0.075, step_size_pre_trained=0.001, decay_epoch_start=50,
+        lr_decay_magnitude=0.5, eps_warmup_epochs=20, alpha_warmup_epochs=16, run_dp=True, grad_clip_bound=0.5,
+        acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, prior_std=15
+    )
 
-    hmc, posterior_samples = AdvHamiltonianMonteCarlo(target_network, hyperparams, AttackType.IBP), None
-    if load_from_file:
-        savedir = "experiments/posterior_samples/ibp_hmc_mnist/"
-        if adv:
-            savedir = "experiments/posterior_samples/ibp_hmc_dp_mnist/"
+    hmc, posterior_samples = None, None
+    if adv:
+        hmc = AdvHamiltonianMonteCarlo(target_network, hyperparams, attack_type)
+    else:
+        hmc = HamiltonianMonteCarlo(target_network, hyperparams)
+    if load_dir is not None:
+        savedir = "experiments/posterior_samples/" + load_dir
         posterior_samples = load_samples(savedir)
     else:
         hmc, posterior_samples = run_experiment_hmc(target_network, TRAIN_DATA, hyperparams)
@@ -188,4 +195,4 @@ TRAIN_DATA, TEST_DATA = load_mnist()
 # hmc_dp_experiment(write_results=False, for_adv_comparison=False, save_model=False)
 # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
 # ablation_study()
-privacy_study()
+# privacy_study()

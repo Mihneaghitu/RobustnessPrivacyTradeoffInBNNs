@@ -179,24 +179,24 @@ PNEUMONIA_MNIST:
     tau_g: 0.1
     tau_l: 0.1
   ADV-HMC (IBP):
-    num_epochs: 58
-    num_burnin_epochs: 25
-    step_size: 0.035
+    num_epochs: 160
+    num_burnin_epochs: 20
+    step_size: 0.1525
     lf_steps: 24
     batch_size: 218
     criterion: BCEWithLogitsLoss
-    num_chains: 4
+    num_chains: 1
     decay_epoch_start: 40
-    lr_decay_magnitude: 0.5
-    warmup_step_size: 0.15
-    momentum_std: 0.005
+    lr_decay_magnitude: 0.1
+    warmup_step_size: 0.225
+    momentum_std: 0.002
     prior_mu: 0.0
-    prior_std: 1.0
+    prior_std: 5
     alpha_warmup_epochs: 16
     eps_warmup_epochs: 20
-    alpha: 0.965
-    alpha_pre_trained: 0.75
-    step_size_pre_trained: 0.001
+    alpha: 0.97
+    alpha_pre_trained: 0
+    step_size_pre_trained: 0
     eps: 0.01
     run_dp: false
     grad_clip_bound: -1.0

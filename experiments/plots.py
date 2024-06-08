@@ -158,22 +158,19 @@ def __plot_ablation_uncertainty(id_auroc: np.ndarray, ood_auroc: np.ndarray, val
     fig.tight_layout()
     plt.show()
 
-def plot_privacy_study(dset_name: str = "MNIST"):
+def plot_privacy_study(dset_name: str = "MNIST", lf_steps: int = 10, epsilon:int = 15, num_chains: int = 1, tau_g: int = 2, tau_l: int = 2):
     plt.rcParams['text.usetex'] = True
     with open("privacy_study.yaml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
         results = config[dset_name]
 
-    epsilon = 15
-    lf_steps, num_chains, tau_g, tau_l = 10, 1, 2, 2
     epochs_trained = [r["num_epochs"] for r in results]
     deltas = [get_delta_dp_bound(epsilon, num_chains, ne, lf_steps, tau_g, tau_l) for ne in epochs_trained]
     oods, ibps, stds = [r["ood_auroc"] for r in results], [r["ibp_acc"] / 100 for r in results], [r["std_acc"] / 100 for r in results]
-    print(ibps)
     # plot them on 1 single graph (4 lines)
     plt.plot(epochs_trained, deltas, label=r"DP-$\delta$", color="black", linewidth=5)
-    plt.plot(epochs_trained, oods, label="OOD AUROC", color="red", linewidth=3)
-    plt.plot(epochs_trained, ibps, label="IBP Accuracy", color="blue", linewidth=3)
+    plt.plot(epochs_trained, oods, label="OOD AUROC", color="blue", linewidth=3)
+    plt.plot(epochs_trained, ibps, label="IBP Accuracy", color="red", linewidth=3)
     if dset_name == "MNIST":
         plt.plot(epochs_trained, stds, label="Standard Accuracy", color="green", linewidth=3)
         plt.title(r"\textbf{MNIST model properties (DP-$\mathbf{\epsilon = 15}$})", fontsize=35)
@@ -190,7 +187,7 @@ def plot_privacy_study(dset_name: str = "MNIST"):
     plt.legend(prop={'size': 18})
     plt.show()
 
-plot_privacy_study("PNEUMONIA_MNIST")
+plot_privacy_study("PNEUMONIA_MNIST", lf_steps=6, epsilon=10)
 # plot_ablation("PNEUMONIA")
 # plot_metrics_individual(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=True, metric_type="uncertainty")
 # plot_metrics()
