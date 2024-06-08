@@ -120,8 +120,8 @@ class HamiltonianMonteCarlo:
             sample_results = torch.tensor([]).to(TORCH_DEVICE)
             for data, _ in data_loader:
                 batch_data_test  = data.to(TORCH_DEVICE)
-                index_of_max_logit = self.net(batch_data_test)
-                sample_results = torch.cat((sample_results, index_of_max_logit), dim=0)
+                y_hat = self.net(batch_data_test)
+                sample_results = torch.cat((sample_results, y_hat), dim=0)
             mean_logits += sample_results / len(posterior_samples)
 
         correct, total = 0, test_set.targets.size(0)

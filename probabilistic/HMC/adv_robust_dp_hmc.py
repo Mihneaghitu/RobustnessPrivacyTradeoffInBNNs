@@ -143,16 +143,16 @@ class AdvHamiltonianMonteCarlo:
             sample_results = torch.tensor([]).to(TORCH_DEVICE)
             for data, _ in data_loader:
                 batch_data_test  = data.to(TORCH_DEVICE)
-                index_of_max_logit = self.net(batch_data_test)
-                sample_results = torch.cat((sample_results, index_of_max_logit), dim=0)
+                y_hat = self.net(batch_data_test)
+                sample_results = torch.cat((sample_results, y_hat), dim=0)
             mean_logits += sample_results / len(posterior_samples)
 
         correct, total = 0, test_set.targets.size(0)
         if self.net.get_num_classes() > 2:
             for i in range(test_set.targets.size(0)):
                 avg_logit = mean_logits[i]
-                index_of_max_logit = torch.argmax(avg_logit)
-                if index_of_max_logit == test_set.targets[i].to(TORCH_DEVICE):
+                index_of_max_logits = torch.argmax(avg_logit)
+                if index_of_max_logits == test_set.targets[i].to(TORCH_DEVICE):
                     correct += 1
         # Binary classification
         else:
