@@ -29,14 +29,9 @@ def adv_dp_experiment(write_results: bool = False, for_adv_comparison: bool = Tr
     hyperparams = HyperparamsHMC(
         num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
         warmup_step_size=0.25, momentum_std=0.002, prior_std=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=0.01,
-        run_dp=True, gray_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, criterion=BCEWithLogitsLoss()
+        run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, criterion=BCEWithLogitsLoss()
     )
 
-    hyperparams = HyperparamsHMC(
-        num_epochs=160, num_burnin_epochs=20, step_size=0.1525, batch_size=218, lr_decay_magnitude=0.1, lf_steps=24, num_chains=1,
-        warmup_step_size=0.225, momentum_std=0.002, alpha=0.97, eps=0.01, run_dp=False, criterion=BCEWithLogitsLoss(), decay_epoch_start=40,
-        eps_warmup_epochs=20, alpha_warmup_epochs=16, prior_std=5
-    )
     attack_type = AttackType.IBP
     model_name = "ADV-DP-HMC" if hyperparams.run_dp else "ADV-HMC"
     fname = "hmc_dp_pneumonia_mnist" if hyperparams.run_dp else "hmc_pneumonia_mnist"
@@ -133,10 +128,18 @@ def single_ablation(eps: float = 0.01, clip_bound: float = 0.5, is_eps_varied: b
     hyperparams = HyperparamsHMC(
         num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
         warmup_step_size=0.25, momentum_std=0.002, prior_std=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=eps,
-        run_dp=True, grad_clip_bound=clip_bound, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1,criterion=BCEWithLogitsLoss()
+        run_dp=True, grad_clip_bound=clip_bound, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, criterion=BCEWithLogitsLoss()
     )
 
     result_dict, testing_eps = None, 0.01
+    # update hps
+    hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP)
+    hyperparams.eps = testing_eps
+    std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+    ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
+    id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
+    ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+    # write results to file
     fname = "experiments/ablation_pneumonia.yaml"
     if not os.path.exists(fname):
         open(fname, "a", encoding="utf-8").close()
@@ -145,20 +148,14 @@ def single_ablation(eps: float = 0.01, clip_bound: float = 0.5, is_eps_varied: b
         with open(fname, "r", encoding="utf-8") as f:
             result_dict = yaml.safe_load(f)
 
-    # update hps
-    hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP)
-    hyperparams.eps = testing_eps
-    std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
-    ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
-    id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
-    ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
     key = "dp" if not is_eps_varied else "eps"
-    result_dict[key].append({"value": eps, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
+    val = eps if is_eps_varied else clip_bound
+    result_dict[key].append({"value": val, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
     with open(fname, "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
 
 TRAIN_DATA, TEST_DATA = load_pneumonia_mnist()
-adv_dp_experiment(write_results=True, save_model=True, for_adv_comparison=True)
+adv_dp_experiment(write_results=False, save_model=False, for_adv_comparison=False)
 # hmc_dp_experiment(write_results=False, for_adv_comparison=False, save_model=False)
 # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
 # ablation_study()

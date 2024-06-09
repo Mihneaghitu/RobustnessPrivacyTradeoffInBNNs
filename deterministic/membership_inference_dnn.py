@@ -74,6 +74,7 @@ class MembershipInferenceAttack:
 
         return input_per_attack_model
 
+
     def train_attack_models(self, input_per_attack_model: Dict[int, Dataset], batch_size: int, num_epochs: int, lr: float) -> None:
         for class_index, attack_model in self.attack_models.items():
             attack_model.train()
@@ -219,9 +220,6 @@ class RecordSynthesizer:
         # data category is the class index
         # Since we have statistical moments, we can generate the data from a normal distribution with the same mean and std
         x = torch.normal(self.marginal_means.unsqueeze(0), self.marginal_stds.unsqueeze(0)).to(TORCH_DEVICE)
-        # Small hack, threshold at 0.5, in practice it apparently does minimal change to the marginal distribution
-        # TODO: This only holds for MNIST so make it general
-        x = torch.where(x < 0.5, torch.zeros_like(x), torch.ones_like(x))
         y_category_threshold, j, k, curr_x = 0, 0, max_rand_features, x.detach().clone()
 
         # Define the conditions

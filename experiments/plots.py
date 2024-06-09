@@ -89,7 +89,7 @@ def plot_ablation(dset_name: str = "MNIST") -> None:
         lims_dp = {"acc": ((70, 90), (30, 60)), "unc": ((0.85, 1.01), (0.7, 1.0))}
         lims_eps = {"acc": ((75, 90), (30, 60)), "unc": ((0.85, 1.05), (0.7, 1.0))}
     else:
-        lims_dp = {"acc": ((60, 90), (60, 90)), "unc": ((0.6, 1.05), (0.3, 0.85))}
+        lims_dp = {"acc": ((55, 90), (55, 75)), "unc": ((0.6, 1.05), (0.4, 0.85))}
         lims_eps = {"acc": ((50, 90), (50, 90)), "unc": ((0.4, 1.0), (0.2, 0.8))}
     with open(fname, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
@@ -143,15 +143,15 @@ def __plot_ablation_uncertainty(id_auroc: np.ndarray, ood_auroc: np.ndarray, val
     axs[1].plot(val_x_axis, ood_auroc, label="Out-Of-Distribution AUROC", color="red")
     for ax, ttl, ylim in zip(axs, titles, ylims):
         ax.set_ylim(ylim[0], ylim[1])
-        # ax.set_xlim(val_x_axis[0] * 1.02, val_x_axis[-1] * 1.02)
-        ax.set_xticks(np.linspace(val_x_axis[0], val_x_axis[-1], 7))
+        ax.set_xticks(np.linspace(val_x_axis[0], val_x_axis[-1], 8))
         ax.set_yticks(np.arange(ylim[0], ylim[1], 0.1))
         ax.set_xlabel(x_label, fontsize=20)
         ax.set_ylabel("Value", fontsize=20)
-        ax.hlines(np.arange(0, 1.1, 0.1), val_x_axis[0], val_x_axis[-1], colors="gray", alpha=0.3)
         if reverse_x_axis:
-            ax.set_xlim(val_x_axis[-1] * 1.02, val_x_axis[0] * 0.7)
+            ax.set_xlim(val_x_axis[-1] * 1.02, val_x_axis[0] * 0.95)
+            ax.hlines(np.arange(0, 1.1, 0.1), val_x_axis[-1], val_x_axis[0], colors="gray", alpha=0.3)
         else:
+            ax.hlines(np.arange(0, 1.1, 0.1), val_x_axis[0], val_x_axis[-1], colors="gray", alpha=0.3)
             ax.set_xlim(val_x_axis[0] * 0.95, val_x_axis[-1] * 1.05)
         ax.legend()
         ax.set_title(ttl, fontsize=25)
@@ -187,15 +187,4 @@ def plot_privacy_study(dset_name: str = "MNIST", lf_steps: int = 10, epsilon:int
     plt.legend(prop={'size': 18})
     plt.show()
 
-plot_privacy_study("PNEUMONIA_MNIST", lf_steps=6, epsilon=10)
-# plot_ablation("PNEUMONIA")
-# plot_metrics_individual(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=True, metric_type="uncertainty")
-# plot_metrics()
-# plot_metrics(metric_type="uncertainty")
-# plot_metrics(for_adv_comparison=False)
-# plot_metrics(metric_type="uncertainty", for_adv_comparison=False)
-#
-# plot_metrics(dataset_name="PNEUMONIA_MNIST")
-# plot_metrics(dataset_name="PNEUMONIA_MNIST", metric_type="uncertainty")
-# plot_metrics(dataset_name="PNEUMONIA_MNIST", for_adv_comparison=False)
-# plot_metrics(dataset_name="PNEUMONIA_MNIST", metric_type="uncertainty", for_adv_comparison=False)
+plot_ablation("PNEUMONIA")

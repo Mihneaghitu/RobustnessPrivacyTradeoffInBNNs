@@ -185,8 +185,6 @@ def membership_inference_bnn_experiment(adv: bool = False, load_dir: bool = Fals
         posterior_samples = load_samples(savedir)
     else:
         hmc, posterior_samples = run_experiment_hmc(target_network, TRAIN_DATA, hyperparams)
-    accuracy = hmc.test_hmc_with_average_logits(TRAIN_DATA, posterior_samples)
-    print(f"Accuracy of BNN with average logits on training set: {accuracy} %")
 
     run_bnn_membership_inference_attack(TRAIN_DATA, target_network, moments, posterior_samples)
 
@@ -196,3 +194,4 @@ TRAIN_DATA, TEST_DATA = load_mnist()
 # dnn_experiment(save_model=False, write_results=False, for_adv_comparison=False)
 # ablation_study()
 # privacy_study()
+membership_inference_bnn_experiment(adv=True, load_dir="ibp_hmc_dp_mnist/", attack_type=AttackType.IBP)
