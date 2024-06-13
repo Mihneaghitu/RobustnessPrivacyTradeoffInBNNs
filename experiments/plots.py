@@ -178,7 +178,7 @@ def plot_privacy_study(dset_name: str = "MNIST", lf_steps: int = 10, epsilon:int
         plt.title(r"\textbf{PneumoniaMNIST model properties (DP-$\mathbf{\epsilon = 10}$})", fontsize=35)
         plt.plot(epochs_trained, stds, label="Standard Accuracy", color="green", linewidth=3, alpha=1, linestyle="--")
     plt.ylabel(r"\textbf{Value}", fontsize=28)
-    plt.xlabel(r"\textbf{Number of epochs trained}", fontsize=28)
+    plt.xlabel(r"\textbf{Number of simulation steps (epochs)}", fontsize=28)
     plt.xticks(epochs_trained, fontsize=15)
     hlines = np.arange(0, 1.1, 0.1)
     plt.hlines(hlines, epochs_trained[0], epochs_trained[-1], colors="gray", alpha=0.3)
@@ -186,5 +186,3 @@ def plot_privacy_study(dset_name: str = "MNIST", lf_steps: int = 10, epsilon:int
 
     plt.legend(prop={'size': 18})
     plt.show()
-
-plot_ablation("PNEUMONIA")
