@@ -154,6 +154,51 @@ def single_ablation(eps: float = 0.01, clip_bound: float = 0.5, is_eps_varied: b
     with open(fname, "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
 
+def paper_ablation_study():
+    ood_data_test = load_fashion_mnist()[1]
+    # Run the ablation study
+    conv_net = ConvBnnPneumoniaMnist().to(TORCH_DEVICE)
+    hyperparams = HyperparamsHMC(
+        num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
+        warmup_step_size=0.25, momentum_std=0.002, prior_std=5, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=0.01,
+        run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.1, tau_l=0.1, criterion=BCEWithLogitsLoss()
+    )
+
+    tau_gs = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    num_chains = [3, 4, 5, 6]
+    result_dict = {"unc": [], "dp": []}
+    for tau_g in tau_gs:
+        # update hps
+        hyperparams.tau_g = tau_g
+        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        result_dict["dp"].append({"tau_g": tau_g,
+                                   "std_acc": std_acc,
+                                   "ibp_acc": ibp_acc,
+                                   "id_auroc": id_auroc,
+                                   "ood_auroc": ood_auroc})
+        print(f"Finished for tau_g: {tau_g}")
+    for nc in num_chains:
+        # update hps
+        hyperparams.num_chains = nc
+        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        result_dict["unc"].append({"num_chains": tau_g,
+                                   "std_acc": std_acc,
+                                   "ibp_acc": ibp_acc,
+                                   "id_auroc": id_auroc,
+                                   "ood_auroc": ood_auroc})
+        print(f"Finished for num_chains: {nc}")
+    with open("experiments/ablation_pneumonia_paper.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(result_dict, f)
+
+
 TRAIN_DATA, TEST_DATA = load_pneumonia_mnist()
 adv_dp_experiment(write_results=False, save_model=False, for_adv_comparison=False)
 # hmc_dp_experiment(write_results=False, for_adv_comparison=False, save_model=False)

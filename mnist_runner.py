@@ -120,7 +120,7 @@ def single_privacy_study(k):
 def ablation_study():
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
-    conv_net = VanillaBnnMnist().to(TORCH_DEVICE)
+    net = VanillaBnnMnist().to(TORCH_DEVICE)
     hyperparams = HyperparamsHMC(
         num_epochs=60, num_burnin_epochs=25, step_size=0.01, lf_steps=120, batch_size=500, num_chains=3, decay_epoch_start=50,
         lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=15, alpha_warmup_epochs=16,
@@ -135,12 +135,12 @@ def ablation_study():
     for curr_eps in epsilons:
         # update hps
         hyperparams.eps = curr_eps
-        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        hmc, posterior_samples = run_experiment_adv_hmc(net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
         hyperparams.eps = testing_eps
         std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
-        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
-        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
-        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        ibp_acc = ibp_eval(net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(net, TEST_DATA, ood_data_test, posterior_samples)[0]
         result_dict["eps"].append({"value": curr_eps,
                                    "std_acc": std_acc,
                                    "ibp_acc": ibp_acc,
@@ -151,11 +151,11 @@ def ablation_study():
     for clip_bound in clip_bounds:
         # update hps
         hyperparams.grad_clip_bound = clip_bound
-        hmc, posterior_samples = run_experiment_adv_hmc(conv_net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        hmc, posterior_samples = run_experiment_adv_hmc(net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
         std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
-        ibp_acc = ibp_eval(conv_net, hyperparams, TEST_DATA, posterior_samples)
-        id_auroc = auroc(conv_net, TEST_DATA, posterior_samples)
-        ood_auroc = ood_detection_auc_and_ece(conv_net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        ibp_acc = ibp_eval(net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(net, TEST_DATA, ood_data_test, posterior_samples)[0]
         result_dict["dp"].append({"value": clip_bound,
                                   "std_acc": std_acc,
                                   "ibp_acc": ibp_acc,
@@ -164,6 +164,52 @@ def ablation_study():
         print(f"Finished for clip bound: {clip_bound}")
     with open("experiments/ablation_mnist.yaml", "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
+
+def paper_ablation_dp_and_unc():
+    ood_data_test = load_fashion_mnist()[1]
+    # Run the ablation study
+    net = VanillaBnnMnist().to(TORCH_DEVICE)
+    hyperparams = HyperparamsHMC(
+        num_epochs=60, num_burnin_epochs=25, step_size=0.01, lf_steps=120, batch_size=500, num_chains=3, decay_epoch_start=50,
+        lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=15, alpha_warmup_epochs=16,
+        eps_warmup_epochs=20, alpha=0.993, alpha_pre_trained=0.75, step_size_pre_trained=0.001, eps=0.075,
+        run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=0.05, tau_l=0.05
+    )
+
+    tau_gs = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+    num_chains = [3, 4, 5, 6]
+    result_dict = {"unc": [], "dp": []}
+    for tau_g in tau_gs:
+        # update hps
+        hyperparams.tau_g = tau_g
+        hmc, posterior_samples = run_experiment_adv_hmc(net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+        ibp_acc = ibp_eval(net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        result_dict["dp"].append({"tau_g": tau_g,
+                                   "std_acc": std_acc,
+                                   "ibp_acc": ibp_acc,
+                                   "id_auroc": id_auroc,
+                                   "ood_auroc": ood_auroc})
+        print(f"Finished for tau_g: {tau_g}")
+    for nc in num_chains:
+        # update hps
+        hyperparams.num_chains = nc
+        hmc, posterior_samples = run_experiment_adv_hmc(net, TRAIN_DATA, hyperparams, AttackType.IBP, init_from_trained=True)
+        std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
+        ibp_acc = ibp_eval(net, hyperparams, TEST_DATA, posterior_samples)
+        id_auroc = auroc(net, TEST_DATA, posterior_samples)
+        ood_auroc = ood_detection_auc_and_ece(net, TEST_DATA, ood_data_test, posterior_samples)[0]
+        result_dict["unc"].append({"num_chains": tau_g,
+                                   "std_acc": std_acc,
+                                   "ibp_acc": ibp_acc,
+                                   "id_auroc": id_auroc,
+                                   "ood_auroc": ood_auroc})
+        print(f"Finished for num_chains: {nc}")
+    with open("experiments/ablation_mnist_paper.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(result_dict, f)
+
 
 def membership_inference_bnn_experiment(adv: bool = False, load_dir: bool = False, attack_type: AttackType = None):
     moments = get_marginal_distributions(TRAIN_DATA)

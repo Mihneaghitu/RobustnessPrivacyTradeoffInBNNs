@@ -213,6 +213,29 @@ def save_results(dset_name: str, model_name: str, results: dict, for_adv_compari
     with open(results_file, 'w', encoding="utf-8") as f:
         yaml.dump(all_results, f, sort_keys=False)
 
+def load_results(dset_name: str, model_name: str, for_adv_comparison: bool = False) -> List[float]:
+    results_file = __file__.rsplit('/', 1)[0] + "/"
+    if for_adv_comparison:
+        results_file += "results_adv.yaml"
+    else:
+        results_file += "results_all.yaml"
+
+    with open(results_file, 'r', encoding="utf-8") as f:
+        all_results = yaml.safe_load(f)
+        return all_results[dset_name][model_name]
+
+def load_ablations(dset_name: str, robustness: bool) -> List[float]:
+    results_file = __file__.rsplit('/', 1)[0] + "/"
+    if dset_name == "MNIST":
+        results_file += "ablation_mnist.yaml"
+    else:
+        results_file += "ablation_pneumonia.yaml"
+
+    ablation_type = "eps" if robustness else "dp"
+    with open(results_file, 'r', encoding="utf-8") as f:
+        all_results = yaml.safe_load(f)
+        return all_results[ablation_type]
+
 #* It is fine to just pass the AdvHamiltonianMonteCarlo object with the net untrained,
 #* because the net params are taken from the posterior samples in the file anyways
 def test_ibp_acc_from_file(hmc: AdvHamiltonianMonteCarlo, test_data: Dataset, fname: str, epsilons: List[float]) -> List[float]:
@@ -331,5 +354,31 @@ def get_delta_dp_bound(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> fl
 
     return float(delta.item())
 
+def get_delta_dp_bound_log(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> float:
+    mu = (epochs / (2 * tau_l ** 2)) + 2 * (epochs * (lf_steps + 1) / (2 * tau_g ** 2))
+    mu *= num_chains
+    print(f"mu: {mu}")
+    eps_dp, mu = torch.tensor(eps_dp), torch.tensor(mu)
+    first_term = torch.erfc((eps_dp - mu) / (2 * torch.sqrt(mu)))
+    second_term_log = eps_dp + torch.log(torch.erfc((eps_dp + mu) / (2 * torch.sqrt(mu))))
+    delta = 0.5 * (first_term - torch.exp(second_term_log))
+
+    return float(delta.item())
+
+# EPS_ADV_DP_HMC_PNEUM = 9.49e+6
+# b_log_adv_dp_pneum = get_delta_dp_bound_log(EPS_ADV_DP_HMC_PNEUM, 3, 65, 120, 0.05, 0.05)
+# print(b_log_adv_dp_pneum)
+#
+# EPS_DP_HMC_PNEUM = 641250
+# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_PNEUM, 3, 70, 120, 0.2, 0.2)
+# print(b_log_dp_pneum)
+#
+# EPS_ADV_DP_HMC_PNEUM = 613e+3
+# b_log_adv_dp_pneum = get_delta_dp_bound_log(EPS_ADV_DP_HMC_PNEUM, 3, 80, 24, 0.1, 0.1)
+# print(b_log_adv_dp_pneum)
+#
+# EPS_DP_HMC_PNEUM = 383290
+# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_PNEUM, 1, 150, 24, 0.1, 0.1)
+# print(b_log_dp_pneum)
 # test_hmc_from_file(load_pneumonia_mnist()[1], AdvModel.FGSM_HMC, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)
 # test_dnn_from_file(load_pneumonia_mnist()[1], AdvDpModel.SGD, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)
