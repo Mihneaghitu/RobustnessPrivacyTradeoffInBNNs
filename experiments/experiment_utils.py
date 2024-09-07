@@ -224,14 +224,20 @@ def load_results(dset_name: str, model_name: str, for_adv_comparison: bool = Fal
         all_results = yaml.safe_load(f)
         return all_results[dset_name][model_name]
 
-def load_ablations(dset_name: str, robustness: bool) -> List[float]:
+def load_ablations(dset_name: str, robustness: bool, privacy: bool) -> List[float]:
     results_file = __file__.rsplit('/', 1)[0] + "/"
     if dset_name == "MNIST":
-        results_file += "ablation_mnist.yaml"
+        results_file += "ablation_mnist_paper.yaml"
     else:
-        results_file += "ablation_pneumonia.yaml"
+        results_file += "ablation_pneumonia_paper.yaml"
 
-    ablation_type = "eps" if robustness else "dp"
+    ablation_type = None
+    if robustness:
+        ablation_type = "rob"
+    elif privacy:
+        ablation_type = "priv"
+    else:
+        ablation_type = "unc"
     with open(results_file, 'r', encoding="utf-8") as f:
         all_results = yaml.safe_load(f)
         return all_results[ablation_type]
@@ -365,19 +371,24 @@ def get_delta_dp_bound_log(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -
 
     return float(delta.item())
 
-# EPS_ADV_DP_HMC_PNEUM = 9.49e+6
-# b_log_adv_dp_pneum = get_delta_dp_bound_log(EPS_ADV_DP_HMC_PNEUM, 3, 65, 120, 0.05, 0.05)
-# print(b_log_adv_dp_pneum)
-#
-# EPS_DP_HMC_PNEUM = 641250
-# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_PNEUM, 3, 70, 120, 0.2, 0.2)
+# EPS_ADV_DP_HMC_MNIST = 9.49e+6
+# epss = [6.153e+5, 163698, 79850, 50439, 36801, 29381]
+# taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+# for eps, tau in zip(epss, taus):
+#     print(f"eps is: {eps}")
+#     b_log_adv_dp_pneum = get_delta_dp_bound_log(eps, 3, 80, 24, 0.1, tau)
+#     print(b_log_adv_dp_pneum)
+#     print("----")
+
+# EPS_DP_HMC_MNIST = 641250
+# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_MNIST, 3, 70, 120, 0.2, 0.2)
 # print(b_log_dp_pneum)
 #
-# EPS_ADV_DP_HMC_PNEUM = 613e+3
+# EPS_ADV_DP_HMC_PNEUM = 6.152e+5
 # b_log_adv_dp_pneum = get_delta_dp_bound_log(EPS_ADV_DP_HMC_PNEUM, 3, 80, 24, 0.1, 0.1)
 # print(b_log_adv_dp_pneum)
 #
-# EPS_DP_HMC_PNEUM = 383290
+# EPS_DP_HMC_PNEUM = 385110
 # b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_PNEUM, 1, 150, 24, 0.1, 0.1)
 # print(b_log_dp_pneum)
 # test_hmc_from_file(load_pneumonia_mnist()[1], AdvModel.FGSM_HMC, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)

@@ -1,10 +1,13 @@
-from copy import deepcopy
 from typing import Dict, List
 
+import matplotlib as mpl
 import plotly.graph_objects as go
 import torch
-from experiment_utils import load_ablations, load_results
+from experiment_utils import (get_delta_dp_bound_log, load_ablations,
+                              load_results)
+from matplotlib.colors import Normalize, to_hex
 from plotly.subplots import make_subplots
+from scipy.optimize import fsolve
 
 from globals import MODEL_NAMES_ADV_DP
 
@@ -14,8 +17,16 @@ PRIVACY_BOUNDS = {"MNIST": {m_name: 1 for m_name in MODEL_NAMES_ADV_DP},
 #TODO: very specific formula, generalize and explain
 PRIVACY_BOUNDS["MNIST"]["HMC-DP"] = torch.log(torch.tensor(641250)) / 50
 PRIVACY_BOUNDS["MNIST"]["ADV-DP-HMC (IBP)"] = torch.log(torch.tensor(9.49e+6)) / 50
-PRIVACY_BOUNDS["PNEUMONIA_MNIST"]["HMC-DP"] = torch.log(torch.tensor(613e+3)) / 50
-PRIVACY_BOUNDS["PNEUMONIA_MNIST"]["ADV-DP-HMC (IBP)"] = torch.log(torch.tensor(383290)) / 50
+PRIVACY_BOUNDS["PNEUMONIA_MNIST"]["HMC-DP"] = torch.log(torch.tensor(385110)) / 50
+PRIVACY_BOUNDS["PNEUMONIA_MNIST"]["ADV-DP-HMC (IBP)"] = torch.log(torch.tensor(6.153e+5)) / 50
+
+def generate_gradient_colors(num_colors, cmap_name='viridis', reversed: bool = False) -> List[str]:
+    if reversed:
+        cmap_name += '_r'
+    cmap = mpl.colormaps[cmap_name]
+    norm = Normalize(vmin=0, vmax=num_colors-1)  # Normalize the number of colors
+    colors = [to_hex(cmap(norm(i))) for i in range(num_colors)]  # Generate colors in hex format
+    return colors
 
 
 def make_radar_chart_performance(net_stats: Dict[str, List[float]], dset_name: str) -> None:
@@ -72,12 +83,8 @@ def make_radar_chart_performance(net_stats: Dict[str, List[float]], dset_name: s
     fig.show()
 
 def make_radar_chart_ablation_robustness(net_stats: Dict[str, List[float]], dset_name: str) -> None:
-    fig = make_subplots(rows=2, cols=3, start_cell="top-left",
-                        # specs=[[{"type": "polar"} for _ in range(4)], [{"type": "polar"} for _ in range(4)]],
-                        specs=[[{"type": "polar"}, {"type": "polar"}, {"type": "polar"}],
-                                [{"type": "polar"}, {"type": "polar"}, {"type": "polar"}]],
-                        horizontal_spacing = 0.04
-                        )
+    colors = generate_gradient_colors(len(list(net_stats.keys())), cmap_name='autumn')
+    fig = go.Figure()
     abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
     for i, (eps_budget, stats) in enumerate(net_stats.items()):
         stats_values = []
@@ -91,22 +98,134 @@ def make_radar_chart_ablation_robustness(net_stats: Dict[str, List[float]], dset
             theta=abl_rob_categories,
             fill='toself',
             name=f"{eps_budget}",
-            legendgrouptitle={"text": r"$\epsilon$", "font": {"size": 35}},
-        ), row=i//3+1, col=i%3+1)
+            line=dict(color=colors[i]),
+        ))
 
 
     fig.update_layout(
       polar={"radialaxis": {"visible": True, "range": [0, 1]}},
       showlegend=True,
       legend={"font": {"size": 22}},
+      legend_title_text="Perturbation budget:",
+      legend_title_font_size=25,
       title={"text": f"<b>Trustworthiness properties of certified ADV-DP-HMC on {dset_name} upon varying the perturbation budget<b>",
              "font": {"size": 30}},
       title_x=0.5,
       margin={"l": 50, "r": 100, "t": 90, "b": 70},
+      legend_x=0.8,
+      legend_y=0.7,
     )
     fig.update_polars(radialaxis={"range": [0, 1]})
 
     fig.show()
+
+def make_radar_chart_ablation_privacy(net_stats: Dict[str, List[float]], dset_name: str) -> None:
+    # hardcoded for now,
+    if dset_name == "MNIST":
+        net_stats[0.05]["DP_EPS"] = 9.49e+6
+        net_stats[0.1]["DP_EPS"] = 2405040
+        net_stats[0.15]["DP_EPS"] = 1092071
+        net_stats[0.2]["DP_EPS"] = 632220
+        net_stats[0.25]["DP_EPS"] = 419244
+        net_stats[0.3]["DP_EPS"] = 303484
+    else:
+        net_stats[0.1]["DP_EPS"] = 6.153e+5
+        net_stats[0.2]["DP_EPS"] = 163698
+        net_stats[0.3]["DP_EPS"] = 79850
+        net_stats[0.4]["DP_EPS"] = 50439
+        net_stats[0.5]["DP_EPS"] = 36801
+        net_stats[0.6]["DP_EPS"] = 29381
+    colors = generate_gradient_colors(len(list(net_stats.keys())), cmap_name='nipy_spectral', reversed=False)
+    colors = ["#fc2003", "#fcf403", "#fcce03", "#03fcbe", "#5a03fc", "#fc03ca", ]
+    print(colors)
+    fig = go.Figure()
+    abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
+    opacities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+    for i, (tau_g, stats) in enumerate(net_stats.items()):
+        stats_values = []
+        stats_values.append(stats["STD_ACC"])
+        stats_values.append(1 - torch.log(torch.tensor(stats["DP_EPS"])) / 40)
+        stats_values.append(stats["OOD_AUROC"])
+        stats_values.append(stats["IBP_ACC"])
+        # because high ECE is bad
+        fig.add_trace(go.Scatterpolar(
+            r=stats_values,
+            theta=abl_rob_categories,
+            fill='toself',
+            name=f"{tau_g}",
+            line=dict(color=colors[i]),
+            opacity=opacities[i]
+        ))
+
+
+    fig.update_layout(
+      polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+      showlegend=True,
+      legend={"font": {"size": 22}},
+      legend_title_text="Gradient sensitivity parameter (tau_g):",
+      legend_title_font_size=25,
+      title={"text": f"<b>Trustworthiness properties of certified ADV-DP-HMC on {dset_name} upon varying privacy guarantees<b>",
+             "font": {"size": 30}},
+      title_x=0.5,
+      margin={"l": 50, "r": 100, "t": 90, "b": 70},
+      legend_x=0.8,
+      legend_y=0.7,
+    )
+    fig.update_polars(radialaxis={"range": [0, 1]})
+
+    fig.show()
+
+def make_radar_chart_ablation_uncertainty(net_stats: Dict[str, List[float]], dset_name: str) -> None:
+    colors = ["#fc2003", "#fcf403", "#fcce03", "#03fcbe", "#5a03fc", "#fc03ca", ]
+    fig = go.Figure()
+    abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
+    opacities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+    for i, (prior_std, stats) in enumerate(net_stats.items()):
+        stats_values = []
+        stats_values.append(stats["STD_ACC"])
+        stats_values.append(1 - PRIVACY_BOUNDS[dset_name]['ADV-DP-HMC (IBP)'])
+        stats_values.append(stats["OOD_AUROC"])
+        stats_values.append(stats["IBP_ACC"])
+        # because high ECE is bad
+        fig.add_trace(go.Scatterpolar(
+            r=stats_values,
+            theta=abl_rob_categories,
+            fill='toself',
+            name=f"{prior_std}",
+            line=dict(color=colors[i]),
+            opacity=opacities[i]
+        ))
+
+
+    fig.update_layout(
+      polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+      showlegend=True,
+      legend={"font": {"size": 22}},
+      legend_title_text="Prior standard deviation (mean=0):",
+      legend_title_font_size=25,
+      title={"text": f"<b>Trustworthiness properties of certified ADV-DP-HMC on {dset_name} upon varying uncertainty guarantees<b>",
+             "font": {"size": 30}},
+      title_x=0.5,
+      margin={"l": 50, "r": 100, "t": 90, "b": 70},
+      legend_x=0.8,
+      legend_y=0.7,
+    )
+    fig.update_polars(radialaxis={"range": [0, 1]})
+
+    fig.show()
+
+def solver(dset_name: str, tau_g: float) -> float:
+    func, initial_guess = None, 0
+    if dset_name == "MNIST":
+        delta_dp = 0.0014
+        func = lambda eps_dp: delta_dp - get_delta_dp_bound_log(eps_dp, 3, 65, 120, 0.05, tau_g=tau_g)
+        initial_guess = 9.49e+6
+    else:
+        delta_dp = 0.0018
+        func = lambda eps_dp: delta_dp - get_delta_dp_bound_log(eps_dp, 3, 80, 24, 0.1, tau_g=tau_g)
+        initial_guess = 383290
+
+    return fsolve(func, initial_guess)[0]
 
 # Load the yaml files with all the results
 results_with_dp_mnist, results_with_dp_pneum = {}, {}
@@ -120,38 +239,68 @@ for model_name in MODEL_NAMES_ADV_DP:
 #@ -------------------------------------------------------------------------
 
 # Load ablation yaml files (robustness and privacy)
-ablation_rob_mnist = load_ablations("MNIST", robustness=True)
-ablation_rob_pneum = load_ablations("PNEUMONIA_MNIST", robustness=True)
-ablation_priv_mnist = load_ablations("MNIST", robustness=False)
-ablation_priv_pneum = load_ablations("PNEUMONIA_MNIST", robustness=False)
+ablation_rob_mnist = load_ablations("MNIST", robustness=True, privacy=False)
+ablation_rob_pneum = load_ablations("PNEUMONIA_MNIST", robustness=True, privacy=False)
+ablation_priv_mnist = load_ablations("MNIST", robustness=False, privacy=True)
+ablation_priv_pneum = load_ablations("PNEUMONIA_MNIST", robustness=False, privacy=True)
+ablation_unc_mnist = load_ablations("MNIST", robustness=False, privacy=False)
+ablation_unc_pneum = load_ablations("PNEUMONIA_MNIST", robustness=False, privacy=False)
 ablation_rob_results_mnist, ablation_rob_results_pneum = {}, {}
 ablation_priv_results_mnist, ablation_priv_results_pneum = {}, {}
+ablation_unc_results_mnist, ablation_unc_results_pneum = {}, {}
 # fill in mnist
-for ablation__rob_dict_mnist, ablation_priv_dict_mnist in zip(ablation_rob_mnist, ablation_priv_mnist):
-    eps_mnist = ablation__rob_dict_mnist['value']
-    if eps_mnist not in [0.075, 0.1, 0.2, 0.3, 0.4, 0.5]:
-        continue
+for ablation_rob_dict_mnist, ablation_priv_dict_mnist, ablation_unc_dict_mnist in zip(ablation_rob_mnist, ablation_priv_mnist, ablation_unc_mnist):
+    # extract robustness data
+    eps_mnist = ablation_rob_dict_mnist['value']
     ablation_rob_results_mnist[eps_mnist] = {}
-    ablation_rob_results_mnist[eps_mnist]['STD_ACC'] = ablation__rob_dict_mnist['std_acc'] / 100
-    ablation_rob_results_mnist[eps_mnist]['IBP_ACC'] = ablation__rob_dict_mnist['ibp_acc'] / 100
-    ablation_rob_results_mnist[eps_mnist]['OOD_AUROC'] = ablation__rob_dict_mnist['ood_auroc']
-    dp_mnist = ablation_priv_dict_mnist['value']
-    if dp_mnist not in [1, 2, 3, 4, 5, 6]:
-        continue
-    ablation_priv_results_mnist[dp_mnist] = {}
-    ablation_priv_results_mnist[dp_mnist]['STD_ACC'] = ablation_priv_dict_mnist['std_acc'] / 100
-    ablation_priv_results_mnist[dp_mnist]['IBP_ACC'] = ablation_priv_dict_mnist['ibp_acc'] / 100
-    ablation_priv_results_mnist[dp_mnist]['OOD_AUROC'] = ablation_priv_dict_mnist['ood_auroc']
+    ablation_rob_results_mnist[eps_mnist]['STD_ACC'] = ablation_rob_dict_mnist['std_acc'] / 100
+    ablation_rob_results_mnist[eps_mnist]['IBP_ACC'] = ablation_rob_dict_mnist['ibp_acc'] / 100
+    ablation_rob_results_mnist[eps_mnist]['OOD_AUROC'] = ablation_rob_dict_mnist['ood_auroc']
+    # extract privacy data
+    tau_mnist = ablation_priv_dict_mnist['value']
+    ablation_priv_results_mnist[tau_mnist] = {}
+    ablation_priv_results_mnist[tau_mnist]['STD_ACC'] = ablation_priv_dict_mnist['std_acc'] / 100
+    ablation_priv_results_mnist[tau_mnist]['IBP_ACC'] = ablation_priv_dict_mnist['ibp_acc'] / 100
+    ablation_priv_results_mnist[tau_mnist]['OOD_AUROC'] = ablation_priv_dict_mnist['ood_auroc']
+    # extract uncertainty data
+    prior_std_mnist = ablation_unc_dict_mnist['value']
+    ablation_unc_results_mnist[prior_std_mnist] = {}
+    ablation_unc_results_mnist[prior_std_mnist]['STD_ACC'] = ablation_unc_dict_mnist['std_acc'] / 100
+    ablation_unc_results_mnist[prior_std_mnist]['IBP_ACC'] = ablation_unc_dict_mnist['ibp_acc'] / 100
+    ablation_unc_results_mnist[prior_std_mnist]['OOD_AUROC'] = ablation_unc_dict_mnist['ood_auroc']
 # fill in pneumonia_mnist
-for ablation_dict_pneum in ablation_rob_pneum:
-    eps_pneum = ablation_dict_pneum['value']
-    if eps_pneum not in [0.01, 0.05, 0.09, 0.13, 0.17, 0.21]:
-        continue
+for ablation_rob_dict_pneum, ablation_priv_dict_pneum, ablation_unc_dict_pneum in zip(ablation_rob_pneum, ablation_priv_pneum, ablation_unc_pneum):
+    # extract robustness data
+    eps_pneum = ablation_rob_dict_pneum['value']
     ablation_rob_results_pneum[eps_pneum] = {}
-    ablation_rob_results_pneum[eps_pneum]['STD_ACC'] = ablation_dict_pneum['std_acc'] / 100
-    ablation_rob_results_pneum[eps_pneum]['IBP_ACC'] = ablation_dict_pneum['ibp_acc'] / 100
-    ablation_rob_results_pneum[eps_pneum]['OOD_AUROC'] = ablation_dict_pneum['ood_auroc']
+    ablation_rob_results_pneum[eps_pneum]['STD_ACC'] = ablation_rob_dict_pneum['std_acc'] / 100
+    ablation_rob_results_pneum[eps_pneum]['IBP_ACC'] = ablation_rob_dict_pneum['ibp_acc'] / 100
+    ablation_rob_results_pneum[eps_pneum]['OOD_AUROC'] = ablation_rob_dict_pneum['ood_auroc']
+    # extract privacy data
+    tau_pneum = ablation_priv_dict_pneum['value']
+    ablation_priv_results_pneum[tau_pneum] = {}
+    ablation_priv_results_pneum[tau_pneum]['STD_ACC'] = ablation_priv_dict_pneum['std_acc'] / 100
+    ablation_priv_results_pneum[tau_pneum]['IBP_ACC'] = ablation_priv_dict_pneum['ibp_acc'] / 100
+    ablation_priv_results_pneum[tau_pneum]['OOD_AUROC'] = ablation_priv_dict_pneum['ood_auroc']
+    # extract uncertainty data
+    prior_std_pneum = ablation_unc_dict_pneum['value']
+    ablation_unc_results_pneum[prior_std_pneum] = {}
+    ablation_unc_results_pneum[prior_std_pneum]['STD_ACC'] = ablation_unc_dict_pneum['std_acc'] / 100
+    ablation_unc_results_pneum[prior_std_pneum]['IBP_ACC'] = ablation_unc_dict_pneum['ibp_acc'] / 100
+    ablation_unc_results_pneum[prior_std_pneum]['OOD_AUROC'] = ablation_unc_dict_pneum['ood_auroc']
+
 #@ ----------------- Type 2 experiments (ablation study robustness) -----------------
-make_radar_chart_ablation_robustness(ablation_rob_results_mnist, "MNIST")
-make_radar_chart_ablation_robustness(ablation_rob_results_pneum, "PNEUMONIA_MNIST")
+# make_radar_chart_ablation_robustness(ablation_rob_results_mnist, "MNIST")
+# make_radar_chart_ablation_robustness(ablation_rob_results_pneum, "PNEUMONIA_MNIST")
 #@ ----------------------------------------------------------------------------------
+
+
+#@ ----------------- Type 3 experiments (ablation study privacy (tau_g)) -----------------
+# make_radar_chart_ablation_privacy(ablation_priv_results_mnist, "MNIST")
+# make_radar_chart_ablation_privacy(ablation_priv_results_pneum, "PNEUMONIA_MNIST")
+#@ ---------------------------------------------------------------------------------------
+
+#@ ----------------- Type 4 experiments (ablation study uncertainty (prior_std)) -----------------
+make_radar_chart_ablation_uncertainty(ablation_unc_results_mnist, "MNIST")
+make_radar_chart_ablation_uncertainty(ablation_unc_results_pneum, "PNEUMONIA_MNIST")
+#@ -----------------------------------------------------------------------------------------------

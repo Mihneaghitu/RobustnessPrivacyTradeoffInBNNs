@@ -29,7 +29,37 @@ priv:
   ood_auroc: 0.5612
   std_acc: 79.16666666666667
   value: 0.6
-rob: []
+rob:
+- ibp_acc: 73.88
+  id_auroc: 0.9133
+  ood_auroc: 0.5383
+  std_acc: 83.81
+  value: 0.01
+- ibp_acc: 69.39
+  id_auroc: 0.7982
+  ood_auroc: 0.5533
+  std_acc: 72.59
+  value: 0.05
+- ibp_acc: 62.5
+  id_auroc: 0.6891
+  ood_auroc: 0.506
+  std_acc: 62.5
+  value: 0.09
+- ibp_acc: 62.5
+  id_auroc: 0.6126
+  ood_auroc: 0.7016
+  std_acc: 62.5
+  value: 0.13
+- ibp_acc: 62.5
+  id_auroc: 0.6922
+  ood_auroc: 0.6922
+  std_acc: 62.5
+  value: 0.17
+- ibp_acc: 62.5
+  id_auroc: 0.5038
+  ood_auroc: 0.6322
+  std_acc: 62.5
+  value: 0.21
 unc:
 - ibp_acc: 71.9551282051282
   id_auroc: 0.9079
