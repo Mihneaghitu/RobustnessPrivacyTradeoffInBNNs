@@ -11,6 +11,7 @@ from deterministic.hyperparams import Hyperparameters
 from deterministic.vanilla_net import VanillaNetMnist
 from experiments.experiment_utils import (compute_metrics_hmc,
                                           compute_metrics_sgd, load_samples,
+                                          resize,
                                           run_bnn_membership_inference_attack,
                                           run_experiment_adv_hmc,
                                           run_experiment_hmc,
@@ -121,20 +122,31 @@ def ablation_study():
     vary_eps = sys.argv[1] == "eps"
     vary_tau = sys.argv[1] == "tau"
     vary_prior = sys.argv[1] == "prior"
+    vary_dset = sys.argv[1] == "dset"
     value = float(sys.argv[2])
-    eps, tau_g, prior_std = 0.075, 0.05, 15 # defaults
+    eps, tau_g, prior_std, sample_percentage, hidden_dim = 0.075, 0.05, 15, 1, 512 # defaults
     if vary_eps:
         eps = value
     elif vary_tau:
         tau_g = value
-    else:
+    elif vary_prior:
         prior_std = value
-    single_ablation(eps=eps, tau_g=tau_g, prior_std=prior_std, vary_eps=vary_eps, vary_tau=vary_tau, vary_prior=vary_prior)
+    elif vary_dset:
+        sample_percentage = value
+    else:
+        hidden_dim = value
+    single_ablation(eps=eps, tau_g=tau_g, prior_std=prior_std, sample_percentage=sample_percentage, hidden_dim=hidden_dim,
+                    vary_eps=vary_eps, vary_tau=vary_tau, vary_prior=vary_prior, vary_dset=vary_dset)
 
-def single_ablation(eps: float, tau_g: float, prior_std: float, vary_eps: bool, vary_tau: bool, vary_prior: bool):
+def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentage: float, hidden_dim: int,
+                    vary_eps: bool, vary_tau: bool, vary_prior: bool, vary_dset: bool):
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
-    net = VanillaBnnMnist().to(TORCH_DEVICE)
+    net = VanillaBnnMnist([hidden_dim]).to(TORCH_DEVICE)
+    train_data_abl = TRAIN_DATA
+    if vary_dset:
+        # get the percentage of each class of the dataset (just for training)
+        train_data_abl = resize(TRAIN_DATA, sample_percentage)
     hyperparams = HyperparamsHMC(
         num_epochs=60, num_burnin_epochs=25, step_size=0.01, lf_steps=120, batch_size=500, num_chains=3, decay_epoch_start=50,
         lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=prior_std, alpha_warmup_epochs=16,
@@ -144,7 +156,7 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, vary_eps: bool, 
 
     result_dict, testing_eps = None, 0.075
     # update hps
-    hmc, posterior_samples = run_experiment_adv_hmc(net, TRAIN_DATA, hyperparams, AttackType.IBP)
+    hmc, posterior_samples = run_experiment_adv_hmc(net, train_data_abl, hyperparams, AttackType.IBP)
     hyperparams.eps = testing_eps
     std_acc = hmc.test_hmc_with_average_logits(TEST_DATA, posterior_samples)
     ibp_acc = ibp_eval(net, hyperparams, TEST_DATA, posterior_samples)
@@ -154,7 +166,7 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, vary_eps: bool, 
     fname = "experiments/ablation_mnist_paper.yaml"
     if not os.path.exists(fname):
         open(fname, "a", encoding="utf-8").close()
-        result_dict = {"rob": [], "priv": [], "unc": []}
+        result_dict = {"rob": [], "priv": [], "unc": [], "dset": [], "model_size": []}
     else:
         with open(fname, "r", encoding="utf-8") as f:
             result_dict = yaml.safe_load(f)
@@ -164,8 +176,12 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, vary_eps: bool, 
         abl_type, varied_val = "rob", eps
     elif vary_tau:
         abl_type, varied_val = "priv", tau_g
-    else:
+    elif vary_prior:
         abl_type, varied_val = "unc", prior_std
+    elif vary_dset:
+        abl_type, varied_val = "dset", sample_percentage
+    else:
+        abl_type, varied_val = "model_size", hidden_dim
     result_dict[abl_type].append({"value": varied_val, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
     with open(fname, "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)

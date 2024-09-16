@@ -94,16 +94,25 @@ class VanillaBnnLinear(torch.nn.Module, ABC):
 
 
 class VanillaBnnMnist(VanillaBnnLinear):
-    def __init__(self):
+    def __init__(self, layer_sizes: List[int] = None):
         super(VanillaBnnMnist, self).__init__(10) # 10 classes
-        self.linear1 = torch.nn.Linear(784, 512)
-        self.linear2 = torch.nn.Linear(512, 10)
+        # apparently when you have a mutable default argument, it can be modified with each call to the function
+        if layer_sizes is None:
+            layer_sizes = [512]
+        linears, prev_size = [], 784
+
+        # create hidden layers
+        for layer_size in layer_sizes:
+            linears.append(torch.nn.Linear(prev_size, layer_size))
+        # create output layer
+        linears.append(torch.nn.Linear(layer_sizes[-1], 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
-        x_start = torch.nn.Flatten()(x)
-        y = torch.nn.ReLU()(self.linear1(x_start))
-        y = self.linear2(y)
+        x_curr = torch.nn.Flatten()(x)
+        for layer in self.linears[:-1]:
+            x_curr = torch.nn.ReLU()(layer(x_curr))
+        y = self.linear[-1](x_curr)
 
         return y
 
@@ -115,12 +124,13 @@ class VanillaBnnMnist(VanillaBnnLinear):
         z_inf = torch.clamp(z_inf, 0, 1)
         z_sup = torch.clamp(z_sup, 0, 1)
 
-        # first layer
-        z_inf, z_sup = self._get_bounds_affine(self.linear1.weight, self.linear1.bias, z_inf, z_sup)
-        z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
+        # hidden layers
+        for layer in self.linears[:-1]:
+            z_inf, z_sup = self._get_bounds_affine(layer.weight, layer.bias, z_inf, z_sup)
+            z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
 
-        # second layer -> logits
-        z_inf, z_sup = self._get_bounds_affine(self.linear2.weight, self.linear2.bias, z_inf, z_sup)
+        # output layer
+        z_inf, z_sup = self._get_bounds_affine(self.linear[-1].weight, self.linear[-1].bias, z_inf, z_sup)
 
 
         return z_inf, z_sup
@@ -169,12 +179,12 @@ class VanillaBnnFashionMnist(VanillaBnnLinear):
         return self.linear2.out_features
 
 class ConvBnnPneumoniaMnist(VanillaBnnLinear):
-    def __init__(self):
+    def __init__(self, dim_ratio: int = 1):
         super(ConvBnnPneumoniaMnist, self).__init__(1) # binary classification
         self.in_channels = 1
-        self.latent_dim = 4800
-        self.conv1 = torch.nn.Conv2d(self.in_channels, 16, kernel_size=4, stride=2)
-        self.conv2 = torch.nn.Conv2d(16, 48, kernel_size=4, stride=1)
+        self.latent_dim = 4800 * dim_ratio
+        self.conv1 = torch.nn.Conv2d(self.in_channels, 16 * dim_ratio, kernel_size=4, stride=2)
+        self.conv2 = torch.nn.Conv2d(16 * dim_ratio, 48 * dim_ratio, kernel_size=4, stride=1)
         self.linear1 = torch.nn.Linear(self.latent_dim, 100)
         self.linear2 = torch.nn.Linear(100, 1) # binary classification
 

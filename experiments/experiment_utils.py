@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 from dataclasses import asdict
@@ -349,6 +350,25 @@ def run_bnn_membership_inference_attack(train_data: Dataset, net: VanillaBnnLine
     print("Testing attack models...")
     membership_inference_attack.test_attack_models(attack_models_dset)
     print("Finished testing attack models.")
+
+
+def resize(train_data: Dataset, sample_percentage: float):
+    train_data_abl = copy.deepcopy(train_data)
+    init_data, init_targets = copy.deepcopy(train_data.data.clone().detach()), copy.deepcopy(train_data.targets.clone().detach())
+    new_data, new_targets = torch.tensor([]), torch.tensor([])
+    for i in range(10): # number of classes
+        indices = torch.where(init_targets == i)[0]
+        num_samples_for_class = indices.shape[0]
+        # choose %percentage of the indices randomly
+        indices = torch.randperm(num_samples_for_class)[:int(sample_percentage * num_samples_for_class)]
+        new_data = torch.cat((new_data, init_data[indices]))
+        new_targets = torch.cat((new_targets, init_targets[indices]))
+        print(new_data.shape)
+        print(new_targets.shape)
+    train_data_abl.data = new_data.clone().detach()
+    train_data_abl.targets = new_targets.clone().detach()
+
+    return train_data_abl
 
 def get_delta_dp_bound(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -> float:
     mu = (epochs / (2 * tau_l ** 2)) + 2 * (epochs * (lf_steps + 1) / (2 * tau_g ** 2))

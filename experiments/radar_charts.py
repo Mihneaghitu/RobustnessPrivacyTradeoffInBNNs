@@ -83,9 +83,10 @@ def make_radar_chart_performance(net_stats: Dict[str, List[float]], dset_name: s
     fig.show()
 
 def make_radar_chart_ablation_robustness(net_stats: Dict[str, List[float]], dset_name: str) -> None:
+    opacities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
     colors = generate_gradient_colors(len(list(net_stats.keys())), cmap_name='autumn')
     fig = go.Figure()
-    abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
+    abl_rob_categories = ['Accuracy', 'Privacy (Certified) [complement on log scale]', "OOD <br> AUROC", "Robustness (Certified)"]
     for i, (eps_budget, stats) in enumerate(net_stats.items()):
         stats_values = []
         stats_values.append(stats["STD_ACC"])
@@ -99,23 +100,25 @@ def make_radar_chart_ablation_robustness(net_stats: Dict[str, List[float]], dset
             fill='toself',
             name=f"{eps_budget}",
             line=dict(color=colors[i]),
+            opacity=opacities[i]
         ))
 
 
     fig.update_layout(
-      polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+      polar={"radialaxis": {"visible": True, "range": [0.2, 0.9], "angle": 15, "tickangle": 15, "linecolor": "blue"},
+             "angularaxis": {"tickfont": {"size": 24}}},
       showlegend=True,
       legend={"font": {"size": 22}},
       legend_title_text="Perturbation budget:",
       legend_title_font_size=25,
-      title={"text": f"<b>Trustworthiness properties of certified ADV-DP-HMC on {dset_name} upon varying the perturbation budget<b>",
+      title={"text": f"<b>Trustworthiness properties of certified ADV-DP-HMC on {dset_name} upon varying the perturbation budget<b><br>",
              "font": {"size": 30}},
       title_x=0.5,
       margin={"l": 50, "r": 100, "t": 90, "b": 70},
       legend_x=0.8,
       legend_y=0.7,
     )
-    fig.update_polars(radialaxis={"range": [0, 1]})
+    fig.update_polars(radialaxis={"range": [0.2, 0.9]})
 
     fig.show()
 
@@ -139,8 +142,8 @@ def make_radar_chart_ablation_privacy(net_stats: Dict[str, List[float]], dset_na
     colors = ["#fc2003", "#fcf403", "#fcce03", "#03fcbe", "#5a03fc", "#fc03ca", ]
     print(colors)
     fig = go.Figure()
-    abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
-    opacities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+    abl_priv_categories = ['Accuracy', 'Privacy (Certified) [complement on log scale]', "OOD <br> AUROC", "Robustness (Certified)"]
+    opacities = [0.8, 0.69, 0.58, 0.47, 0.36, 0.25]
     for i, (tau_g, stats) in enumerate(net_stats.items()):
         stats_values = []
         stats_values.append(stats["STD_ACC"])
@@ -150,7 +153,7 @@ def make_radar_chart_ablation_privacy(net_stats: Dict[str, List[float]], dset_na
         # because high ECE is bad
         fig.add_trace(go.Scatterpolar(
             r=stats_values,
-            theta=abl_rob_categories,
+            theta=abl_priv_categories,
             fill='toself',
             name=f"{tau_g}",
             line=dict(color=colors[i]),
@@ -159,7 +162,8 @@ def make_radar_chart_ablation_privacy(net_stats: Dict[str, List[float]], dset_na
 
 
     fig.update_layout(
-      polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+      polar={"radialaxis": {"visible": True, "range": [0.4, 0.9], "angle": 15, "tickangle": 15, "linecolor": "blue"},
+             "angularaxis": {"tickfont": {"size": 24}}},
       showlegend=True,
       legend={"font": {"size": 22}},
       legend_title_text="Gradient sensitivity parameter (tau_g):",
@@ -171,14 +175,14 @@ def make_radar_chart_ablation_privacy(net_stats: Dict[str, List[float]], dset_na
       legend_x=0.8,
       legend_y=0.7,
     )
-    fig.update_polars(radialaxis={"range": [0, 1]})
+    fig.update_polars(radialaxis={"range": [0.4, 0.9]})
 
     fig.show()
 
 def make_radar_chart_ablation_uncertainty(net_stats: Dict[str, List[float]], dset_name: str) -> None:
     colors = ["#fc2003", "#fcf403", "#fcce03", "#03fcbe", "#5a03fc", "#fc03ca", ]
     fig = go.Figure()
-    abl_rob_categories = ['Accuracy', 'Privacy (Certified) <br> [complement on log scale]', "OOD_AUROC", "Robustness <br> (Certified)"]
+    abl_unc_categories = ['Accuracy', 'Privacy (Certified) [complement on log scale]', "OOD <br> AUROC", "Robustness (Certified)"]
     opacities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
     for i, (prior_std, stats) in enumerate(net_stats.items()):
         stats_values = []
@@ -189,7 +193,7 @@ def make_radar_chart_ablation_uncertainty(net_stats: Dict[str, List[float]], dse
         # because high ECE is bad
         fig.add_trace(go.Scatterpolar(
             r=stats_values,
-            theta=abl_rob_categories,
+            theta=abl_unc_categories,
             fill='toself',
             name=f"{prior_std}",
             line=dict(color=colors[i]),
@@ -198,7 +202,8 @@ def make_radar_chart_ablation_uncertainty(net_stats: Dict[str, List[float]], dse
 
 
     fig.update_layout(
-      polar={"radialaxis": {"visible": True, "range": [0, 1]}},
+      polar={"radialaxis": {"visible": True, "range": [0.45, 0.9], "angle": 15, "tickangle": 15, "linecolor": "blue"},
+             "angularaxis": {"tickfont": {"size": 24}}},
       showlegend=True,
       legend={"font": {"size": 22}},
       legend_title_text="Prior standard deviation (mean=0):",
@@ -210,7 +215,7 @@ def make_radar_chart_ablation_uncertainty(net_stats: Dict[str, List[float]], dse
       legend_x=0.8,
       legend_y=0.7,
     )
-    fig.update_polars(radialaxis={"range": [0, 1]})
+    fig.update_polars(radialaxis={"range": [0.45, 0.9]})
 
     fig.show()
 
@@ -290,8 +295,8 @@ for ablation_rob_dict_pneum, ablation_priv_dict_pneum, ablation_unc_dict_pneum i
     ablation_unc_results_pneum[prior_std_pneum]['OOD_AUROC'] = ablation_unc_dict_pneum['ood_auroc']
 
 #@ ----------------- Type 2 experiments (ablation study robustness) -----------------
-# make_radar_chart_ablation_robustness(ablation_rob_results_mnist, "MNIST")
-# make_radar_chart_ablation_robustness(ablation_rob_results_pneum, "PNEUMONIA_MNIST")
+make_radar_chart_ablation_robustness(ablation_rob_results_mnist, "MNIST")
+make_radar_chart_ablation_robustness(ablation_rob_results_pneum, "PNEUMONIA_MNIST")
 #@ ----------------------------------------------------------------------------------
 
 
@@ -301,6 +306,6 @@ for ablation_rob_dict_pneum, ablation_priv_dict_pneum, ablation_unc_dict_pneum i
 #@ ---------------------------------------------------------------------------------------
 
 #@ ----------------- Type 4 experiments (ablation study uncertainty (prior_std)) -----------------
-make_radar_chart_ablation_uncertainty(ablation_unc_results_mnist, "MNIST")
-make_radar_chart_ablation_uncertainty(ablation_unc_results_pneum, "PNEUMONIA_MNIST")
+# make_radar_chart_ablation_uncertainty(ablation_unc_results_mnist, "MNIST")
+# make_radar_chart_ablation_uncertainty(ablation_unc_results_pneum, "PNEUMONIA_MNIST")
 #@ -----------------------------------------------------------------------------------------------
