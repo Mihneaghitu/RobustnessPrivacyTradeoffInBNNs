@@ -175,6 +175,8 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentag
         abl_type, varied_val = "dset", sample_percentage
     else:
         abl_type, varied_val = "model_size", dim_ratio
+    if result_dict[abl_type] is None:
+        result_dict[abl_type] = []
     result_dict[abl_type].append({"value": varied_val, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
     with open(fname, "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
