@@ -363,8 +363,6 @@ def resize(train_data: Dataset, sample_percentage: float):
         indices = torch.randperm(num_samples_for_class)[:int(sample_percentage * num_samples_for_class)]
         new_data = torch.cat((new_data, init_data[indices]))
         new_targets = torch.cat((new_targets, init_targets[indices]))
-        print(new_data.shape)
-        print(new_targets.shape)
     train_data_abl.data = new_data.clone().detach()
     train_data_abl.targets = new_targets.clone().detach()
 

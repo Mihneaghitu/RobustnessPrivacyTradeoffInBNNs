@@ -16,8 +16,8 @@ MODEL_SIZE_RATIOS=(0.25 0.5 1 2 4)
 #     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python pneumonia_mnist_runner.py prior $priorstd
 # done
 for dsetsizes in ${DSET_SIZES[@]}; do
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python mnist_runner.py dset $dsetsizes
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python pneumonia_mnist_runner.py dset $dsetsizes
 done
 for modelsizes in ${MODEL_SIZE_RATIOS[@]}; do
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python mnist_runner.py model_size $modelsizes
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python pneumonia_mnist_runner.py model_size $modelsizes
 done

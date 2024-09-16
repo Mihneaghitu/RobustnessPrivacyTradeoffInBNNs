@@ -99,20 +99,21 @@ class VanillaBnnMnist(VanillaBnnLinear):
         # apparently when you have a mutable default argument, it can be modified with each call to the function
         if layer_sizes is None:
             layer_sizes = [512]
-        linears, prev_size = [], 784
+        self.linears, prev_size = torch.nn.ModuleList(), 784
 
         # create hidden layers
         for layer_size in layer_sizes:
-            linears.append(torch.nn.Linear(prev_size, layer_size))
+            self.linears.append(torch.nn.Linear(prev_size, layer_size))
+            prev_size = layer_size
         # create output layer
-        linears.append(torch.nn.Linear(layer_sizes[-1], 10))
+        self.linears.append(torch.nn.Linear(layer_sizes[-1], 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
         x_curr = torch.nn.Flatten()(x)
         for layer in self.linears[:-1]:
             x_curr = torch.nn.ReLU()(layer(x_curr))
-        y = self.linear[-1](x_curr)
+        y = self.linears[-1](x_curr)
 
         return y
 
@@ -130,7 +131,7 @@ class VanillaBnnMnist(VanillaBnnLinear):
             z_inf, z_sup = self._get_bounds_monotonic(activation, z_inf, z_sup)
 
         # output layer
-        z_inf, z_sup = self._get_bounds_affine(self.linear[-1].weight, self.linear[-1].bias, z_inf, z_sup)
+        z_inf, z_sup = self._get_bounds_affine(self.linears[-1].weight, self.linears[-1].bias, z_inf, z_sup)
 
 
         return z_inf, z_sup
