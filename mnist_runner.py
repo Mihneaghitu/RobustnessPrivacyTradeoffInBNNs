@@ -3,6 +3,7 @@ import sys
 
 import torch
 import yaml
+from math import ceil
 
 from common.attack_types import AttackType
 from common.dataset_utils import (get_marginal_distributions,
@@ -143,12 +144,13 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentag
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
     net = VanillaBnnMnist([hidden_dim]).to(TORCH_DEVICE)
-    train_data_abl = TRAIN_DATA
+    train_data_abl, leapfrog_steps = TRAIN_DATA, 120
     if vary_dset:
         # get the percentage of each class of the dataset (just for training)
         train_data_abl = resize(TRAIN_DATA, sample_percentage)
+        leapfrog_steps = int(ceil(len(train_data_abl) / 500))
     hyperparams = HyperparamsHMC(
-        num_epochs=60, num_burnin_epochs=25, step_size=0.01, lf_steps=120, batch_size=500, num_chains=3, decay_epoch_start=50,
+        num_epochs=60, num_burnin_epochs=25, step_size=0.01, lf_steps=leapfrog_steps, batch_size=500, num_chains=3, decay_epoch_start=50,
         lr_decay_magnitude=0.5, warmup_step_size=0.2, momentum_std=0.001, prior_mu=0.0, prior_std=prior_std, alpha_warmup_epochs=16,
         eps_warmup_epochs=20, alpha=0.993, alpha_pre_trained=0.75, step_size_pre_trained=0.001, eps=eps, run_dp=True,
         grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=tau_g, tau_l=0.05
@@ -182,7 +184,7 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentag
         abl_type, varied_val = "dset", sample_percentage
     else:
         abl_type, varied_val = "model_size", hidden_dim
-    if result_dict[abl_type] is None:
+    if abl_type not in result_dict:
         result_dict[abl_type] = []
     result_dict[abl_type].append({"value": varied_val, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
     with open(fname, "w", encoding="utf-8") as f:

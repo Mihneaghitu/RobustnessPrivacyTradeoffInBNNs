@@ -103,10 +103,10 @@ class VanillaBnnMnist(VanillaBnnLinear):
 
         # create hidden layers
         for layer_size in layer_sizes:
-            self.linears.append(torch.nn.Linear(prev_size, layer_size))
-            prev_size = layer_size
+            self.linears.append(torch.nn.Linear(prev_size, int(layer_size)))
+            prev_size = int(layer_size)
         # create output layer
-        self.linears.append(torch.nn.Linear(layer_sizes[-1], 10))
+        self.linears.append(torch.nn.Linear(int(layer_sizes[-1]), 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # flatten the representation
@@ -137,10 +137,10 @@ class VanillaBnnMnist(VanillaBnnLinear):
         return z_inf, z_sup
 
     def get_input_size(self) -> int:
-        return self.linear1.in_features
+        return self.linears[0].in_features
 
     def get_output_size(self) -> int:
-        return self.linear2.out_features
+        return self.linears[-1].out_features
 
 class VanillaBnnFashionMnist(VanillaBnnLinear):
     def __init__(self):
@@ -183,9 +183,9 @@ class ConvBnnPneumoniaMnist(VanillaBnnLinear):
     def __init__(self, dim_ratio: int = 1):
         super(ConvBnnPneumoniaMnist, self).__init__(1) # binary classification
         self.in_channels = 1
-        self.latent_dim = 4800 * dim_ratio
-        self.conv1 = torch.nn.Conv2d(self.in_channels, 16 * dim_ratio, kernel_size=4, stride=2)
-        self.conv2 = torch.nn.Conv2d(16 * dim_ratio, 48 * dim_ratio, kernel_size=4, stride=1)
+        self.latent_dim = int(4800 * dim_ratio)
+        self.conv1 = torch.nn.Conv2d(self.in_channels, int(16 * dim_ratio), kernel_size=4, stride=2)
+        self.conv2 = torch.nn.Conv2d(int(16 * dim_ratio), int(48 * dim_ratio), kernel_size=4, stride=1)
         self.linear1 = torch.nn.Linear(self.latent_dim, 100)
         self.linear2 = torch.nn.Linear(100, 1) # binary classification
 

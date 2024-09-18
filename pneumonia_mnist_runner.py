@@ -4,6 +4,7 @@ import sys
 
 import torch
 import yaml
+from math import ceil
 from torch.nn import BCEWithLogitsLoss
 
 from common.attack_types import AttackType
@@ -138,11 +139,12 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentag
     ood_data_test = load_fashion_mnist()[1]
     # Run the ablation study
     conv_net = ConvBnnPneumoniaMnist(dim_ratio=dim_ratio).to(TORCH_DEVICE)
-    train_data_abl = TRAIN_DATA
+    train_data_abl, leapfrog_steps = TRAIN_DATA, 24
     if vary_dset:
         train_data_abl = resize(TRAIN_DATA, sample_percentage)
+        leapfrog_steps = int(ceil(len(train_data_abl) / 500))
     hyperparams = HyperparamsHMC(
-        num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=24, num_chains=3,
+        num_epochs=80, num_burnin_epochs=25, step_size=0.04, batch_size=218, lr_decay_magnitude=0.5, lf_steps=leapfrog_steps, num_chains=3,
         warmup_step_size=0.25, momentum_std=0.002, prior_std=prior_std, alpha_warmup_epochs=16, eps_warmup_epochs=20, alpha=0.975, eps=eps,
         run_dp=True, grad_clip_bound=0.5, acceptance_clip_bound=0.5, tau_g=tau_g, tau_l=0.1, criterion=BCEWithLogitsLoss()
     )
@@ -175,7 +177,7 @@ def single_ablation(eps: float, tau_g: float, prior_std: float, sample_percentag
         abl_type, varied_val = "dset", sample_percentage
     else:
         abl_type, varied_val = "model_size", dim_ratio
-    if result_dict[abl_type] is None:
+    if abl_type not in result_dict:
         result_dict[abl_type] = []
     result_dict[abl_type].append({"value": varied_val, "std_acc": std_acc, "ibp_acc": ibp_acc, "id_auroc": id_auroc, "ood_auroc": ood_auroc})
     with open(fname, "w", encoding="utf-8") as f:
