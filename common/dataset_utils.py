@@ -68,6 +68,9 @@ def load_pneumonia_mnist() -> Tuple[PneumoniaMNIST, PneumoniaMNIST]:
 
     return train_dataset, test_dataset
 
+def train_validation_split(dataset: Dataset, validation_ratio: float = 0.1) -> Tuple[Dataset, Dataset]:
+    return torch.utils.data.random_split(dataset, [int(len(dataset) * (1 - validation_ratio)), int(len(dataset) * validation_ratio)])
+
 def get_marginal_distributions(dataset: Dataset) -> Tuple[torch.Tensor, torch.Tensor]:
     num_features = 1
     # [0][0] input, [0][1] target

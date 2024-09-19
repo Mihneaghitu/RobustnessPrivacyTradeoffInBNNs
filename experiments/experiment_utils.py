@@ -388,26 +388,3 @@ def get_delta_dp_bound_log(eps_dp, num_chains, epochs, lf_steps, tau_l, tau_g) -
     delta = 0.5 * (first_term - torch.exp(second_term_log))
 
     return float(delta.item())
-
-# EPS_ADV_DP_HMC_MNIST = 9.49e+6
-# epss = [6.153e+5, 163698, 79850, 50439, 36801, 29381]
-# taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
-# for eps, tau in zip(epss, taus):
-#     print(f"eps is: {eps}")
-#     b_log_adv_dp_pneum = get_delta_dp_bound_log(eps, 3, 80, 24, 0.1, tau)
-#     print(b_log_adv_dp_pneum)
-#     print("----")
-
-# EPS_DP_HMC_MNIST = 641250
-# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_MNIST, 3, 70, 120, 0.2, 0.2)
-# print(b_log_dp_pneum)
-#
-# EPS_ADV_DP_HMC_PNEUM = 6.152e+5
-# b_log_adv_dp_pneum = get_delta_dp_bound_log(EPS_ADV_DP_HMC_PNEUM, 3, 80, 24, 0.1, 0.1)
-# print(b_log_adv_dp_pneum)
-#
-# EPS_DP_HMC_PNEUM = 385110
-# b_log_dp_pneum = get_delta_dp_bound_log(EPS_DP_HMC_PNEUM, 1, 150, 24, 0.1, 0.1)
-# print(b_log_dp_pneum)
-# test_hmc_from_file(load_pneumonia_mnist()[1], AdvModel.FGSM_HMC, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)
-# test_dnn_from_file(load_pneumonia_mnist()[1], AdvDpModel.SGD, dset_name="PNEUMONIA_MNIST", testing_eps=0.01)

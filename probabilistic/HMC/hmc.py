@@ -10,6 +10,8 @@ import wandb
 from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader
 
+from common.datasets import Dataset
+
 sys.path.append('../../')
 
 from globals import LOGGER_TYPE, TORCH_DEVICE, LoggerType
@@ -23,7 +25,7 @@ class HamiltonianMonteCarlo:
         self.hps = hyperparameters
         self.init_hps = copy.deepcopy(hyperparameters)
 
-    def train_with_restarts(self, train_set: torchvision.datasets.mnist) -> List[torch.tensor]:
+    def train_with_restarts(self, train_set: Dataset) -> List[torch.tensor]:
         posterior_samples_all_restarts = []
         for _ in range(self.hps.num_chains):
             posterior_samples_all_restarts += self.train_bnn(train_set)
