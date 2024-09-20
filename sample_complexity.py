@@ -1,6 +1,7 @@
 import os
 from typing import Dict, List, Tuple, Union
 
+import itertools
 import numpy as np
 import torch
 import yaml
@@ -37,7 +38,7 @@ MNIST_TRAIN, MNIST_TEST = load_mnist()
 PNEUM_TRAIN, PNEUM_TEST = load_pneumonia_mnist()
 OOD_TEST_SET = load_fashion_mnist()[1]
 # RUNS
-NUM_AVERAGING_RUNS = 5
+NUM_AVERAGING_RUNS = 1
 # YAML FILE NAME
 YAML_FILE = "experiments/sample_complexity.yaml"
 
@@ -55,97 +56,105 @@ def write_data(key: str, data: dict):
     with open(YAML_FILE, "w", encoding="utf-8") as f:
         yaml.dump(result_dict, f)
 
+def __reset_hps(hps: HyperparamsHMC, varied_props: Dict[str, bool], vals: List[Union[int, float]]) -> HyperparamsHMC:
+    i = 0
+    if "epochs" in varied_props:
+        hps.num_epochs = vals[i]
+        i += 1
+    if "step_size" in varied_props:
+        hps.step_size = vals[i]
+        i += 1
+    if "num_chains" in varied_props:
+        hps.num_chains = vals[i]
+        i += 1
+    if "lf_steps" in varied_props:
+        hps.lf_steps = vals[i]
+        i += 1
+    if "alpha" in varied_props:
+        hps.alpha = vals[i]
+        i += 1
+
+    return hps
+
 def run_sample_cplx_exp(varied_props: Dict[str, bool], thresholds: Dict[str, float], grids: Dict[str, List[Union[int, float]]], train_dset: Dataset,
                         test_dset: Dataset, hmc_runner: Union[HamiltonianMonteCarlo, AdvHamiltonianMonteCarlo]) -> tuple:
     order = ["epochs", "step_size", "num_chains", "lf_steps", "alpha"]
     grids_ls = [grids[prop] for prop in order if prop in varied_props] # equivalently, "if prop in grids"
     for dset_ratio in DSET_RATIOS:
+        print("Running for ratio: ", dset_ratio)
         all_data = resize(train_dset, dset_ratio)
-        train_data, validation_data = train_validation_split(all_data)
+        train_data_ratio, validation_data_ratio = train_validation_split(all_data)
+        #@ basically, the targets come as long from the train_val split, and the cross entropy is happy, but bce is not, so we need to cast
+        if isinstance(hmc_runner.hps.criterion, BCEWithLogitsLoss):
+            train_data_ratio.targets = train_data_ratio.targets.float()
+            validation_data_ratio.targets = validation_data_ratio.targets.float()
+            test_dset.targets = test_dset.targets.float()
         hyperparams_for_avg_acc = {}
-        for var_props in zip(*grids_ls):
-            i = 0
-            if varied_props["epochs"]:
-                hmc_runner.hps.num_epochs = var_props[i]
-                i += 1
-            if varied_props["step_size"]:
-                hmc_runner.hps.step_size = var_props[i]
-                i += 1
-            if varied_props["num_chains"]:
-                hmc_runner.hps.num_chains = var_props[i]
-                i += 1
-            if varied_props["lf_steps"]:
-                hmc_runner.hps.lf_steps = var_props[i]
-                i += 1
-            if varied_props["alpha"]:
-                hmc_runner.hps.alpha = var_props[i]
-                i += 1
+        cartesian_product = list(itertools.product(*grids_ls))
+        for var_props in cartesian_product:
             avg_vals_for_run = [0] * len(thresholds)
-            for _ in range(NUM_AVERAGING_RUNS):
-                posterior_samples = hmc_runner.train_with_restarts(train_data)
+            for run in range(NUM_AVERAGING_RUNS):
+                # This might look weird, but it is absolutely necessary to reset the parameters
+                #@ I DON'T KNOW WHY
+                hmc_runner.hps = __reset_hps(hmc_runner.hps, varied_props, var_props)
+                print("Run: ", run)
+                print("Hyperparameters: ", hmc_runner.hps.num_epochs, hmc_runner.hps.step_size, hmc_runner.hps.num_chains, hmc_runner.hps.lf_steps, hmc_runner.hps.alpha)
+                posterior_samples = hmc_runner.train_with_restarts(train_data_ratio)
                 k = 0
                 if "acc" in thresholds:
-                    acc = hmc_runner.test_hmc_with_average_logits(validation_data, posterior_samples)
+                    acc = hmc_runner.test_hmc_with_average_logits(validation_data_ratio, posterior_samples)
+                    print(f"Accuracy of run {run}: {acc}")
                     avg_vals_for_run[k] += acc / NUM_AVERAGING_RUNS
                     k += 1
                 if "unc" in thresholds:
-                    ood_auroc = ood_detection_auc_and_ece(hmc_runner, validation_data, OOD_TEST_SET, posterior_samples)[0]
+                    ood_auroc = ood_detection_auc_and_ece(hmc_runner, validation_data_ratio, OOD_TEST_SET, posterior_samples)[0]
+                    print(f"OOD AUROC of run {run}: {ood_auroc}")
                     avg_vals_for_run[k] += ood_auroc / NUM_AVERAGING_RUNS
                     k += 1
                 if "rob" in thresholds:
-                    ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, validation_data, posterior_samples)
+                    ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, validation_data_ratio, posterior_samples)
+                    print(f"IBP accuracy of run {run}: {ibp_acc}")
                     avg_vals_for_run[k] += ibp_acc / NUM_AVERAGING_RUNS
                     k += 1
             # so, keys of the thresholds are floats, tuple of floats are hashable, we can use them as keys of the dict
             hyperparams_for_avg_acc[tuple(avg_vals_for_run)] = tuple(var_props)
         best_hyperparams_tuple = hyperparams_for_avg_acc[max(hyperparams_for_avg_acc.keys())]
-        i = 0
-        if varied_props["epochs"]:
-            hmc_runner.hps.num_epochs = best_hyperparams_tuple[i]
-            i += 1
-        if varied_props["step_size"]:
-            hmc_runner.hps.step_size = best_hyperparams_tuple[i]
-            i += 1
-        if varied_props["num_chains"]:
-            hmc_runner.hps.num_chains = best_hyperparams_tuple[i]
-            i += 1
-        if varied_props["lf_steps"]:
-            hmc_runner.hps.lf_steps = best_hyperparams_tuple[i]
-            i += 1
-        if varied_props["alpha"]:
-            hmc_runner.hps.alpha = best_hyperparams_tuple[i]
-            i += 1
-        best_posterior_samples = hmc_runner.train_with_restarts(all_data)
-        test_vals = {}
-        if "acc" in thresholds:
-            acc = hmc_runner.test_hmc_with_average_logits(test_dset, best_posterior_samples)
-            test_vals["acc"] = acc
-        if "unc" in thresholds:
-            ood_auroc = ood_detection_auc_and_ece(hmc_runner, test_dset, OOD_TEST_SET, best_posterior_samples)[0]
-            test_vals["unc"] = ood_auroc
-        if "rob" in thresholds:
-            ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, test_dset, best_posterior_samples)
-            test_vals["rob"] = ibp_acc
+        avg_test_vals = {k: 0 for k in thresholds}
+        # Rerun for NUM_AVERAGING_RUNS with the best hyperparameters to get the *actual* test values
+        for run in range(NUM_AVERAGING_RUNS):
+            hmc_runner.hps = __reset_hps(hmc_runner.hps, varied_props, best_hyperparams_tuple)
+            best_posterior_samples = hmc_runner.train_with_restarts(train_data_ratio)
+            if "acc" in thresholds:
+                acc = hmc_runner.test_hmc_with_average_logits(test_dset, best_posterior_samples)
+                avg_test_vals["acc"] = avg_test_vals["acc"] + acc / NUM_AVERAGING_RUNS
+            if "unc" in thresholds:
+                ood_auroc = ood_detection_auc_and_ece(hmc_runner, test_dset, OOD_TEST_SET, best_posterior_samples)[0]
+                avg_test_vals["unc"] = avg_test_vals["unc"] + ood_auroc / NUM_AVERAGING_RUNS
+            if "rob" in thresholds:
+                ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, test_dset, best_posterior_samples)
+                avg_test_vals["rob"] = avg_test_vals["rob"] + ibp_acc / NUM_AVERAGING_RUNS
         num_better = 0
         for key in thresholds:
-            if test_vals[key] >= thresholds[key]:
+            if avg_test_vals[key] >= thresholds[key]:
                 num_better += 1
         if num_better == len(thresholds):
+            print("Found the best hyperparameters for the given thresholds")
+            print("Hyperparameters: ", best_hyperparams_tuple)
             hyperparams_dict = {}
             i = 0
-            if varied_props["epochs"]:
+            if "epochs" in varied_props:
                 hyperparams_dict["epochs"] = best_hyperparams_tuple[i]
                 i += 1
-            if varied_props["step_size"]:
+            if "step_size" in varied_props:
                 hyperparams_dict["step_size"] = best_hyperparams_tuple[i]
                 i += 1
-            if varied_props["num_chains"]:
+            if "num_chains" in varied_props:
                 hyperparams_dict["num_chains"] = best_hyperparams_tuple[i]
                 i += 1
-            if varied_props["lf_steps"]:
+            if "lf_steps" in varied_props:
                 hyperparams_dict["lf_steps"] = best_hyperparams_tuple[i]
                 i += 1
-            if varied_props["alpha"]:
+            if "alpha" in varied_props:
                 hyperparams_dict["alpha"] = best_hyperparams_tuple[i]
                 i += 1
             hyperparams_dict["complexity"] = dset_ratio
@@ -161,22 +170,23 @@ def run_sample_cplx_exp(varied_props: Dict[str, bool], thresholds: Dict[str, flo
 
 
 def get_acc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset,
-                              test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int]:
-    epochs_grid = [40, 50, 60]
-    step_size_grid = [0.005, 0.01, 0.02]
-    lf_steps_grid = [10, 20, 30]
+                              test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int, int]:
+    epochs_grid = [30] #[30, 40]
+    step_size_grid = [0.15] #[0.2, 0.4]
+    lf_steps_grid = [15] #[10, 20]
+    num_chains_grid = [1]
     if model is ConvBnnPneumoniaMnist:
         lf_steps_grid = [12, 15, 18]
 
     hmc = HamiltonianMonteCarlo(model, hyperparams)
     hmc.hps.run_dp = False
 
-    varied_props = {"epochs": True, "step_size": True, "lf_steps": True}
-    grids = {"epochs": epochs_grid, "step_size": step_size_grid, "lf_steps": lf_steps_grid}
+    varied_props = {"epochs": True, "step_size": True, "num_chains": True, "lf_steps": True}
+    grids = {"epochs": epochs_grid, "step_size": step_size_grid, "num_chains": num_chains_grid, "lf_steps": lf_steps_grid}
     thresholds = {"acc": threshold}
 
-    dset_ratio, epoch_b, step_size_b, lf_steps_b = run_sample_cplx_exp(varied_props, thresholds, grids, train_dset, test_dset, hmc)
-    return dset_ratio, epoch_b, step_size_b, lf_steps_b
+    dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b = run_sample_cplx_exp(varied_props, thresholds, grids, train_dset, test_dset, hmc)
+    return dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b
 
 def get_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset,
                               test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int, int]:
@@ -185,7 +195,7 @@ def get_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLine
     num_chains_grid = [2, 3, 4]
     # base for mnist
     lf_steps_grid = [30, 40, 50, 60]
-    if model is ConvBnnPneumoniaMnist:
+    if isinstance(model, ConvBnnPneumoniaMnist):
         lf_steps_grid = [12, 15, 18, 21]
 
     hmc = HamiltonianMonteCarlo(model, hyperparams)
@@ -315,3 +325,8 @@ def get_unc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: Vanill
 
     dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b, alpha_b = run_sample_cplx_exp(varied_props, thresholds, grids, train_dset, test_dset, hmc)
     return dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b, alpha_b
+
+# acc is in percentage
+#@ We want to reach 85% accuracy for mnist and 83% for pneumonia
+get_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
+get_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)

@@ -4,7 +4,7 @@ import sys
 import torchvision.transforms.functional
 
 sys.path.append('../')
-from typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
 import torch
@@ -69,7 +69,18 @@ def load_pneumonia_mnist() -> Tuple[PneumoniaMNIST, PneumoniaMNIST]:
     return train_dataset, test_dataset
 
 def train_validation_split(dataset: Dataset, validation_ratio: float = 0.1) -> Tuple[Dataset, Dataset]:
-    return torch.utils.data.random_split(dataset, [int(len(dataset) * (1 - validation_ratio)), int(len(dataset) * validation_ratio)])
+    splits = [int(len(dataset) * (1 - validation_ratio)), int(len(dataset) * validation_ratio)]
+    if splits[0] + splits[1] != len(dataset):
+        splits[0] += 1
+    train_subset, validation_subset = torch.utils.data.random_split(dataset, splits)
+    train_dset = GenericDataset(train_subset.dataset.data[train_subset.indices], train_subset.dataset.targets[train_subset.indices])
+    validation_dset = GenericDataset(validation_subset.dataset.data[validation_subset.indices], validation_subset.dataset.targets[validation_subset.indices])
+    # cast y's to LongTensor
+    train_dset.targets = train_dset.targets.long()
+    validation_dset.targets = validation_dset.targets.long()
+
+    return train_dset, validation_dset
+
 
 def get_marginal_distributions(dataset: Dataset) -> Tuple[torch.Tensor, torch.Tensor]:
     num_features = 1
