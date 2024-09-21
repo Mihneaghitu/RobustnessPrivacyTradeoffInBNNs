@@ -1,7 +1,7 @@
+import itertools
 import os
 from typing import Dict, List, Tuple, Union
 
-import itertools
 import numpy as np
 import torch
 import yaml
@@ -171,9 +171,9 @@ def run_sample_cplx_exp(varied_props: Dict[str, bool], thresholds: Dict[str, flo
 
 def get_acc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset,
                               test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int, int]:
-    epochs_grid = [30] #[30, 40]
-    step_size_grid = [0.15] #[0.2, 0.4]
-    lf_steps_grid = [15] #[10, 20]
+    epochs_grid = [40, 50, 60]
+    step_size_grid = [0.05, 0.1, 0.15]
+    lf_steps_grid = [10, 15, 20]
     num_chains_grid = [1]
     if model is ConvBnnPneumoniaMnist:
         lf_steps_grid = [12, 15, 18]
@@ -190,13 +190,13 @@ def get_acc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLine
 
 def get_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset,
                               test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int, int]:
-    epochs_grid = [40, 50, 60, 70, 80]
-    step_size_grid = [0.0125, 0.025, 0.0375, 0.05]
-    num_chains_grid = [2, 3, 4]
+    epochs_grid = [50, 60, 70, 80]
+    step_size_grid = [0.01, 0.03, 0.05, 0.07]
+    num_chains_grid = [2, 3]
     # base for mnist
-    lf_steps_grid = [30, 40, 50, 60]
+    lf_steps_grid = [40, 50, 60]
     if isinstance(model, ConvBnnPneumoniaMnist):
-        lf_steps_grid = [12, 15, 18, 21]
+        lf_steps_grid = [12, 15, 18]
 
     hmc = HamiltonianMonteCarlo(model, hyperparams)
     hmc.hps.run_dp = False
@@ -209,8 +209,8 @@ def get_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLine
 
 def get_rob_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset,
                               test_dset: Dataset, threshold: float) -> Tuple[float, int, float, int, float]:
-    epochs_grid = [30, 40, 50]
-    step_size_grid = [0.0125, 0.025, 0.0375, 0.05]
+    epochs_grid = [40, 50, 60]
+    step_size_grid = [0.1, 0.15, 0.2, 0.25]
     # base for mnist
     alpha_grid = [0.75, 0.85, 0.95]
     lf_steps_grid = [30, 40, 50, 60]
@@ -229,8 +229,8 @@ def get_rob_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLine
 #! Technically, there is no threshold for privacy. It suffices to keep the same number of steps, epochs and chains as the base model
 def get_priv_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset, test_dset: Dataset,
                                        threshold_rob: float) -> Tuple[float, float, int]:
-    step_size_grid = [0.01, 0.02, 0.03, 0.04, 0.05]
-    alpha_grid = [0.9, 0.925, 0.95, 0.975, 0.99]
+    step_size_grid = [0.01, 0.05, 0.09, 0.13]
+    alpha_grid = [0.925, 0.95, 0.975, 0.99]
 
     adv_hmc = AdvHamiltonianMonteCarlo(model, hyperparams, attack_type=AttackType.IBP)
     adv_hmc.hps.run_dp = True
@@ -243,7 +243,7 @@ def get_priv_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: Vanil
 
 def get_priv_and_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset, test_dset: Dataset,
                                        threshold_unc: float) -> Tuple[float, float]:
-    step_size_grid = [0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+    step_size_grid = [0.01, 0.04, 0.07, 0.1, 0.13, 0.16]
 
     adv_hmc = AdvHamiltonianMonteCarlo(model, hyperparams, attack_type=AttackType.IBP)
     adv_hmc.hps.run_dp = True
@@ -270,8 +270,8 @@ def get_priv_and_acc_sample_complexity(hyperparams: HyperparamsHMC, model: Vanil
 def get_acc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset, test_dset: Dataset,
                                        threshold_acc: float, threshold_rob: float) -> Tuple[float, int, float, int, int]:
     epochs_grid = [40, 50, 60]
-    step_size_grid = [0.005, 0.01, 0.02]
-    lf_steps_grid = [10, 20, 30]
+    step_size_grid = [0.05, 0.1, 0.15, 0.2]
+    lf_steps_grid = [30, 40, 50]
     if model is ConvBnnPneumoniaMnist:
         lf_steps_grid = [12, 15, 18]
     alpha_grid = [0.75, 0.85, 0.95]
@@ -288,11 +288,11 @@ def get_acc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: Vanill
 
 def get_acc_and_unc_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset, test_dset: Dataset,
                                        threshold_acc: float, threshold_unc: float) -> Tuple[float, int, float, int, int]:
-    epochs_grid = [40, 50, 60, 70, 80]
-    step_size_grid = [0.0125, 0.025, 0.0375, 0.05]
+    epochs_grid = [50, 60, 70, 80]
+    step_size_grid = [0.01, 0.04, 0.07, 0.1]
     num_chains_grid = [2, 3, 4]
     # base for mnist
-    lf_steps_grid = [30, 40, 50, 60]
+    lf_steps_grid = [20, 35, 50, 65]
     if model is ConvBnnPneumoniaMnist:
         lf_steps_grid = [12, 15, 18, 21]
 
@@ -307,11 +307,11 @@ def get_acc_and_unc_sample_complexity(hyperparams: HyperparamsHMC, model: Vanill
 
 def get_unc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: VanillaBnnLinear, train_dset: Dataset, test_dset: Dataset,
                                        threshold_unc: float, threshold_rob: float) -> Tuple[float, int, float, int, int]:
-    epochs_grid = [40, 50, 60, 70, 80]
-    step_size_grid = [0.0125, 0.025, 0.0375, 0.05]
+    epochs_grid = [50, 60, 70, 80]
+    step_size_grid = [0.01, 0.05, 0.1, 0.15]
     num_chains_grid = [2, 3, 4]
     # base for mnist
-    lf_steps_grid = [30, 40, 50, 60]
+    lf_steps_grid = [20, 35, 50, 65]
     if model is ConvBnnPneumoniaMnist:
         lf_steps_grid = [12, 15, 18, 21]
     alpha_grid = [0.75, 0.85, 0.95]
@@ -330,3 +330,39 @@ def get_unc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: Vanill
 #@ We want to reach 85% accuracy for mnist and 83% for pneumonia
 get_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
 get_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
+
+# ibp is in percentage
+#@ We want to reach 56% certified robustness for mnist and 75% for pneumonia
+get_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
+get_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
+
+# unc (ood_auroc) is in [0, 1]
+#@ We want to reach 0.7 ood_auroc for mnist and 0.5 for pneumonia
+get_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
+get_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
+
+#! For privacy, we want the same acc, rob and unc as the base models above
+#@ priv and acc
+get_priv_and_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
+get_priv_and_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
+
+#@ priv and rob
+get_priv_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
+get_priv_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
+
+#@ priv and unc
+get_priv_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
+get_priv_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
+
+#! For the joint experiments, we want to reach the same thresholds as the base models
+#@ acc and rob
+get_acc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 56)
+get_acc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 75)
+
+#@ acc and unc
+get_acc_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 0.7)
+get_acc_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 0.5)
+
+#@ unc and rob
+get_unc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7, 56)
+get_unc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5, 75)
