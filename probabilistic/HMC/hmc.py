@@ -294,6 +294,8 @@ class HamiltonianMonteCarlo:
         return batch_data, batch_target
 
     def __run_schedule(self, curr_epoch: int) -> None:
+        if self.hps.num_epochs <= self.hps.decay_epoch_start:
+            return
         decay_step = self.hps.step_size * (1 - self.hps.lr_decay_magnitude) / (self.hps.num_epochs - self.hps.decay_epoch_start)
         if curr_epoch >= self.hps.decay_epoch_start:
             self.hps.step_size -= decay_step

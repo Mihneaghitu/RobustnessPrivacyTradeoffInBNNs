@@ -1,5 +1,6 @@
 import itertools
 import os
+import sys
 from typing import Dict, List, Tuple, Union
 
 import numpy as np
@@ -38,7 +39,7 @@ MNIST_TRAIN, MNIST_TEST = load_mnist()
 PNEUM_TRAIN, PNEUM_TEST = load_pneumonia_mnist()
 OOD_TEST_SET = load_fashion_mnist()[1]
 # RUNS
-NUM_AVERAGING_RUNS = 1
+NUM_AVERAGING_RUNS = 5
 # YAML FILE NAME
 YAML_FILE = "experiments/sample_complexity.yaml"
 
@@ -107,12 +108,12 @@ def run_sample_cplx_exp(varied_props: Dict[str, bool], thresholds: Dict[str, flo
                     avg_vals_for_run[k] += acc / NUM_AVERAGING_RUNS
                     k += 1
                 if "unc" in thresholds:
-                    ood_auroc = ood_detection_auc_and_ece(hmc_runner, validation_data_ratio, OOD_TEST_SET, posterior_samples)[0]
+                    ood_auroc = ood_detection_auc_and_ece(hmc_runner.net, validation_data_ratio, OOD_TEST_SET, posterior_samples)[0]
                     print(f"OOD AUROC of run {run}: {ood_auroc}")
                     avg_vals_for_run[k] += ood_auroc / NUM_AVERAGING_RUNS
                     k += 1
                 if "rob" in thresholds:
-                    ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, validation_data_ratio, posterior_samples)
+                    ibp_acc = ibp_eval(hmc_runner.net, hmc_runner.hps, validation_data_ratio, posterior_samples)
                     print(f"IBP accuracy of run {run}: {ibp_acc}")
                     avg_vals_for_run[k] += ibp_acc / NUM_AVERAGING_RUNS
                     k += 1
@@ -128,10 +129,10 @@ def run_sample_cplx_exp(varied_props: Dict[str, bool], thresholds: Dict[str, flo
                 acc = hmc_runner.test_hmc_with_average_logits(test_dset, best_posterior_samples)
                 avg_test_vals["acc"] = avg_test_vals["acc"] + acc / NUM_AVERAGING_RUNS
             if "unc" in thresholds:
-                ood_auroc = ood_detection_auc_and_ece(hmc_runner, test_dset, OOD_TEST_SET, best_posterior_samples)[0]
+                ood_auroc = ood_detection_auc_and_ece(hmc_runner.net, test_dset, OOD_TEST_SET, best_posterior_samples)[0]
                 avg_test_vals["unc"] = avg_test_vals["unc"] + ood_auroc / NUM_AVERAGING_RUNS
             if "rob" in thresholds:
-                ibp_acc = ibp_eval(hmc_runner.model, hmc_runner.hps, test_dset, best_posterior_samples)
+                ibp_acc = ibp_eval(hmc_runner.net, hmc_runner.hps, test_dset, best_posterior_samples)
                 avg_test_vals["rob"] = avg_test_vals["rob"] + ibp_acc / NUM_AVERAGING_RUNS
         num_better = 0
         for key in thresholds:
@@ -247,6 +248,7 @@ def get_priv_and_unc_sample_complexity(hyperparams: HyperparamsHMC, model: Vanil
 
     adv_hmc = AdvHamiltonianMonteCarlo(model, hyperparams, attack_type=AttackType.IBP)
     adv_hmc.hps.run_dp = True
+    adv_hmc.hps.alpha = 1
     varied_props = {"step_size": True}
     grids = {"step_size": step_size_grid}
     thresholds = {"unc": threshold_unc}
@@ -260,6 +262,7 @@ def get_priv_and_acc_sample_complexity(hyperparams: HyperparamsHMC, model: Vanil
 
     adv_hmc = AdvHamiltonianMonteCarlo(model, hyperparams, attack_type=AttackType.IBP)
     adv_hmc.hps.run_dp = True
+    adv_hmc.hps.alpha = 1
     varied_props = {"step_size": True}
     grids = {"step_size": step_size_grid}
     thresholds = {"acc": threshold_acc}
@@ -326,43 +329,46 @@ def get_unc_and_rob_sample_complexity(hyperparams: HyperparamsHMC, model: Vanill
     dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b, alpha_b = run_sample_cplx_exp(varied_props, thresholds, grids, train_dset, test_dset, hmc)
     return dset_ratio, epoch_b, step_size_b, num_chains_b, lf_steps_b, alpha_b
 
-# acc is in percentage
-#@ We want to reach 85% accuracy for mnist and 83% for pneumonia
-get_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
-get_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
-
-# ibp is in percentage
-#@ We want to reach 56% certified robustness for mnist and 75% for pneumonia
-get_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
-get_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
-
-# unc (ood_auroc) is in [0, 1]
-#@ We want to reach 0.7 ood_auroc for mnist and 0.5 for pneumonia
-get_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
-get_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
-
-#! For privacy, we want the same acc, rob and unc as the base models above
-#@ priv and acc
-get_priv_and_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
-get_priv_and_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
-
-#@ priv and rob
-get_priv_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
-get_priv_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
-
-#@ priv and unc
-get_priv_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
-get_priv_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
-
-#! For the joint experiments, we want to reach the same thresholds as the base models
-#@ acc and rob
-get_acc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 56)
-get_acc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 75)
-
-#@ acc and unc
-get_acc_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 0.7)
-get_acc_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 0.5)
-
-#@ unc and rob
-get_unc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7, 56)
-get_unc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5, 75)
+exp_type = sys.argv[1]
+match exp_type:
+    case "acc":
+        # acc is in percentage
+        #@ We want to reach 85% accuracy for mnist and 83% for pneumonia
+        get_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
+        get_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
+    case "rob":
+        # ibp is in percentage
+        #@ We want to reach 56% certified robustness for mnist and 75% for pneumonia
+        get_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
+        get_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
+    case "unc":
+        # unc (ood_auroc) is in [0, 1]
+        #@ We want to reach 0.7 ood_auroc for mnist and 0.5 for pneumonia
+        get_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
+        get_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
+    #! For privacy, we want the same acc, rob and unc as the base models above
+    case "priv_acc":
+        #@ priv and acc
+        get_priv_and_acc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85)
+        get_priv_and_acc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83)
+    case "priv_rob":
+        #@ priv and rob
+        get_priv_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 56)
+        get_priv_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 75)
+    case "priv_unc":
+        #@ priv and unc
+        get_priv_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7)
+        get_priv_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5)
+    case "acc_rob":
+        #! For the joint experiments, we want to reach the same thresholds as the base models
+        #@ acc and rob
+        get_acc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 56)
+        get_acc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 75)
+    case "acc_unc":
+        #@ acc and unc
+        get_acc_and_unc_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 85, 0.7)
+        get_acc_and_unc_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 83, 0.5)
+    case "unc_rob":
+        #@ unc and rob
+        get_unc_and_rob_sample_complexity(BASE_MNIST_HYPERPARAMS, MNIST_NET, MNIST_TRAIN, MNIST_TEST, 0.7, 56)
+        get_unc_and_rob_sample_complexity(BASE_PNEUM_HYPERPARAMS, PNEUM_NET, PNEUM_TRAIN, PNEUM_TEST, 0.5, 75)
