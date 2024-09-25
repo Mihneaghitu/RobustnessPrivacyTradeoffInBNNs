@@ -4,7 +4,6 @@ from typing import List, Tuple
 
 import torch
 import torch.distributions as dist
-import torch.nn.functional as F
 import torchvision
 import wandb
 from torch.func import functional_call, grad, vmap
